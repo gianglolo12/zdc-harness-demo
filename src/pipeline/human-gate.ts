@@ -66,14 +66,14 @@ export async function handleCommand(
 
     // Under the cap — re-enqueue Phase 1 with feedback so the agent refines
     const job = await state.getJob(mrIidStr)
-    const impactJob: ImpactJobIntent & { feedback?: string } = {
+    const impactJob: ImpactJobIntent = {
       type: "impact",
       target: job?.target ?? "unknown",
       prd: job?.prd ?? "unknown",
       ref: job?.ref ?? "unknown",
       feedback: intent.feedback,
     }
-    await enqueuer.enqueue(impactJob as JobIntent)
+    await enqueuer.enqueue(impactJob)
     return
   }
 

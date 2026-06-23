@@ -121,6 +121,7 @@ function makeApproveNoteWebhook(mrIid: number) {
 function makePreBoundPhase1(
   gitlab: ReturnType<typeof makeFakeGitlab>,
   queue: ReturnType<typeof makeInMemoryQueue>,
+  stateStore?: InMemoryStateStore,
 ) {
   const runClaude = vi.fn().mockResolvedValue({
     stdout: "## Impact Analysis\nAffects: UserService, AuthController\n",
@@ -130,6 +131,8 @@ function makePreBoundPhase1(
   const overlay = vi.fn().mockResolvedValue(undefined)
   const memorySearch = vi.fn().mockReturnValue([])
   const memoryWrite = vi.fn().mockReturnValue("mem-entry-1")
+  // Use provided state store or a fresh one — caller can inspect it after the run.
+  const state = stateStore ?? new InMemoryStateStore()
 
   const preBound = async (intent: ImpactJobIntent): Promise<{ mrIid: number }> => {
     const deps: Phase1Deps = {
@@ -145,13 +148,14 @@ function makePreBoundPhase1(
         getMR: gitlab.getMR,
       },
       memory: { search: memorySearch, write: memoryWrite } as any,
+      state,
       projectId: 1,
       controlPlaneDir: "/cp",
     }
     return runPhase1(deps)
   }
 
-  return { preBound, runClaude, reviewSolution, checkout, overlay }
+  return { preBound, runClaude, reviewSolution, checkout, overlay, state }
 }
 
 function makePreBoundPhase2(
@@ -330,6 +334,62 @@ describe("e2e harness flow", () => {
     expect(gitlab.commentMR).not.toHaveBeenCalled()
   })
 
+  // ─── C1: e2e integration — real Phase 1 persists state, no manual seed needed ──
+
+  it("C1: real runPhase1 persists job → /approve reads it → Phase 2 enqueued with correct target", async () => {
+    const gitlab = makeFakeGitlab()
+    const queue = makeInMemoryQueue()
+    // Single shared state store — Phase 1 writes, handleCommand reads (no manual seed)
+    const state = new InMemoryStateStore()
+
+    const { preBound: preBoundPhase1 } = makePreBoundPhase1(gitlab, queue, state)
+    const { preBound: preBoundPhase2 } = makePreBoundPhase2(gitlab, queue)
+
+    const workerDeps: WorkerDeps = {
+      isPaused: () => false,
+      dryRun: false,
+      runPhase1: preBoundPhase1,
+      runPhase2: preBoundPhase2,
+      gitlab: { commentMR: gitlab.commentMR },
+      enqueuer: queue.enqueuer,
+      projectId: 1,
+      handleCommand: () => Promise.resolve(),
+    }
+
+    // Step 1: processJob runs real Phase 1 which calls state.putJob internally
+    const impactIntent: ImpactJobIntent = {
+      type: "impact",
+      target: "be",
+      prd: "PRD-1",
+      ref: "feature/add-user-endpoint",
+    }
+    await processJob(impactIntent, workerDeps)
+
+    // Verify Phase 1 created the MR and persisted job state
+    expect(gitlab.mrs.size).toBe(1)
+    const mrIid = [...gitlab.mrs.values()][0].iid
+    const persistedJob = await state.getJob(String(mrIid))
+    expect(persistedJob).toBeDefined()
+    expect(persistedJob?.target).toBe("be")
+
+    // Step 2: /approve via handleCommand — reads from SAME state store (no manual seed)
+    const humanGateDeps: HumanGateDeps = {
+      state,
+      gitlab: { commentMR: gitlab.commentMR, setLabel: gitlab.setLabel },
+      enqueuer: queue.enqueuer,
+      dryRun: false,
+      projectId: 1,
+    }
+    const approveIntent = { type: "approve" as const, mrIid }
+    await handleCommand(approveIntent, humanGateDeps)
+
+    // Phase 2 enqueued with the correct target — NOT "unknown"
+    const phase2Job = queue.jobs.find((j) => j.type === "phase2") as Phase2JobIntent
+    expect(phase2Job).toBeDefined()
+    expect(phase2Job.target).toBe("be")
+    expect(phase2Job.prd).toBe("PRD-1")
+  })
+
   it("(d) processJob(phase2) → runPhase2 → finalizeMR called", async () => {
     const gitlab = makeFakeGitlab()
     const queue = makeInMemoryQueue()
@@ -382,6 +442,7 @@ describe("e2e harness flow", () => {
     const callOrder: string[] = []
     const gitlab = makeFakeGitlab()
     const queue = makeInMemoryQueue()
+    // Shared state — Phase 1 writes, handleCommand reads (no manual seed needed after C1 fix)
     const state = new InMemoryStateStore()
 
     // Wrap fakes to record call order
@@ -412,10 +473,10 @@ describe("e2e harness flow", () => {
     })
     callOrder.push("webhook:push:enqueued")
 
-    // --- (b) worker processes impact ---
+    // --- (b) worker processes impact --- Phase 1 internally calls state.putJob
     const impactJob = queue.jobs[0] as ImpactJobIntent
 
-    const { preBound: preBoundPhase1 } = makePreBoundPhase1(gitlab, queue)
+    const { preBound: preBoundPhase1 } = makePreBoundPhase1(gitlab, queue, state)
     const { preBound: preBoundPhase2 } = makePreBoundPhase2(gitlab, queue)
 
     const workerDeps: WorkerDeps = {
@@ -426,22 +487,14 @@ describe("e2e harness flow", () => {
       gitlab: { commentMR: gitlab.commentMR },
       enqueuer: queue.enqueuer,
       projectId: 1,
+      handleCommand: () => Promise.resolve(),
     }
 
     await processJob(impactJob, workerDeps)
     callOrder.push("processJob:impact:done")
 
-    // Retrieve the created MR iid
+    // Retrieve the created MR iid — state already written by Phase 1, no manual seed
     const mrIid = [...gitlab.mrs.values()][0].iid
-
-    // Seed state for human-gate
-    await state.putJob(String(mrIid), {
-      target: "be",
-      prd: "PRD-1",
-      ref: "feature/add-user-endpoint",
-      phase: "phase1",
-      revisionCount: 0,
-    })
 
     // --- (c) approve note webhook ---
     await server.inject({

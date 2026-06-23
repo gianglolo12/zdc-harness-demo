@@ -84,16 +84,18 @@ export async function runPhase2(deps: Phase2Deps): Promise<void> {
     tags: ["phase2", intent.target, intent.prd],
   })
 
-  // 8. FE handoff: if agent reports FE impact and this job is for the BE, enqueue fe impact
+  // 8. FE handoff: if agent reports FE impact and this job is for the BE, enqueue fe impact.
+  // I3: do NOT reuse the BE ref — the FE repo likely lacks that branch. Use "main" as the
+  // default base branch so the clone succeeds on the FE repo's default branch.
   if (footer?.affects_fe && intent.target === "be") {
-    const feJob: ImpactJobIntent & { api_contract?: string } = {
+    const feJob: ImpactJobIntent = {
       type: "impact",
       target: "fe",
       prd: intent.prd,
-      ref: intent.ref,
+      ref: "main",
       api_contract: footer.api_contract,
     }
-    await enqueuer.enqueue(feJob as Parameters<Enqueuer["enqueue"]>[0])
+    await enqueuer.enqueue(feJob)
   }
 }
 

@@ -6,6 +6,14 @@ import type { Phase1Deps } from "./phase1-impact.js"
 
 const fakeEntry = { sourceRepo: "git@gl:zdc/be-source.git", bundle: "be", controlPlaneRef: "main" }
 
+function makeFakeState() {
+  const store = new Map<string, unknown>()
+  return {
+    putJob: vi.fn(async (mrIid: string, job: unknown) => { store.set(mrIid, job) }),
+    _store: store,
+  }
+}
+
 function makeDeps(overrides: Partial<Phase1Deps> = {}): Phase1Deps {
   return {
     intent: { type: "impact", target: "be", prd: "PRD-42", ref: "feature/x" },
@@ -24,6 +32,7 @@ function makeDeps(overrides: Partial<Phase1Deps> = {}): Phase1Deps {
         { id: "m1", repo: "be", area: "payment", fix: "add retry", issue: "timeout", rootCause: "no retry", errorSignature: "ESP", tags: [], created: "" },
       ]),
     } as any,
+    state: makeFakeState(),
     projectId: 7,
     controlPlaneDir: "/cp",
     ...overrides,
@@ -120,5 +129,71 @@ describe("runPhase1", () => {
     expect(deps.checkout).toHaveBeenCalledWith(
       expect.objectContaining({ sourceRepo: fakeEntry.sourceRepo, ref: "feature/x" }),
     )
+  })
+
+  // ─── C1: state.putJob persisted after MR creation ───────────────────────────
+
+  it("C1: state.putJob is called with mrIid and correct job fields after createDraftMR", async () => {
+    const state = makeFakeState()
+    const deps = makeDeps({ state })
+    await runPhase1(deps)
+    expect(state.putJob).toHaveBeenCalledOnce()
+    expect(state.putJob).toHaveBeenCalledWith("99", {
+      target: "be",
+      prd: "PRD-42",
+      ref: "feature/x",
+      phase: "phase1",
+      revisionCount: 0,
+    })
+  })
+
+  it("C1: state.putJob mrIid matches the iid returned by createDraftMR", async () => {
+    const state = makeFakeState()
+    const gitlab = {
+      createDraftMR: vi.fn().mockResolvedValue({ iid: 77 }),
+      commentMR: vi.fn(),
+      getMR: vi.fn(),
+    } as any
+    const deps = makeDeps({ state, gitlab })
+    const result = await runPhase1(deps)
+    expect(result.mrIid).toBe(77)
+    expect(state.putJob).toHaveBeenCalledWith("77", expect.objectContaining({ target: "be" }))
+  })
+
+  // ─── I1: feedback reaches /auto-impact input ─────────────────────────────────
+
+  it("I1: feedback from intent is included in /auto-impact input", async () => {
+    const deps = makeDeps({
+      intent: { type: "impact", target: "be", prd: "PRD-42", ref: "feature/x", feedback: "please add caching" },
+    })
+    await runPhase1(deps)
+    const firstCall = (deps.runClaude as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(firstCall[0].input).toContain("please add caching")
+  })
+
+  it("I1: feedback is absent from input when not provided", async () => {
+    const deps = makeDeps()
+    await runPhase1(deps)
+    const firstCall = (deps.runClaude as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(firstCall[0].input).not.toContain("Human feedback")
+  })
+
+  // ─── I2: api_contract reaches /auto-impact input ─────────────────────────────
+
+  it("I2: api_contract from intent is included in /auto-impact input", async () => {
+    const deps = makeDeps({
+      intent: { type: "impact", target: "fe", prd: "PRD-42", ref: "main", api_contract: '{"POST /users":"..."}' },
+      registry: { repos: { fe: fakeEntry } },
+    })
+    await runPhase1(deps)
+    const firstCall = (deps.runClaude as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(firstCall[0].input).toContain('{"POST /users":"..."}')
+  })
+
+  it("I2: api_contract is absent from input when not provided", async () => {
+    const deps = makeDeps()
+    await runPhase1(deps)
+    const firstCall = (deps.runClaude as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(firstCall[0].input).not.toContain("API contract")
   })
 })

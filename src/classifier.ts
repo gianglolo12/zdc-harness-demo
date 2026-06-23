@@ -2,7 +2,16 @@ const TAG = /\[zdc:update-(be|fe|qa)\s+([A-Za-z0-9-]+)\]/
 const PROTECTED = new Set(["main", "master", "develop"])
 const CMD = /^\/(approve|revise|reject|abort)\b\s*(.*)$/s
 
-export type ImpactJobIntent = { type: "impact"; target: string; prd: string; ref: string }
+export type ImpactJobIntent = {
+  type: "impact"
+  target: string
+  prd: string
+  ref: string
+  /** Human revise feedback carried into the re-run (I1). */
+  feedback?: string
+  /** BE→FE API contract handed off from Phase 2 (I2). */
+  api_contract?: string
+}
 export type JobIntent =
   | ImpactJobIntent
   | { type: "approve" | "reject" | "abort"; mrIid: number }

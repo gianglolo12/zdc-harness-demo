@@ -98,13 +98,16 @@ describe("runPhase2", () => {
 
     expect(deps.enqueuer.enqueue).toHaveBeenCalledOnce()
     const job = (deps.enqueuer.enqueue as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    // I3: FE handoff uses "main" (not the BE branch "feature-x") so FE repo clone succeeds
     expect(job).toMatchObject({
       type: "impact",
       target: "fe",
       prd: "my-prd",
-      ref: "feature-x",
+      ref: "main",
     })
+    // I2: api_contract from footer reaches the enqueued FE impact job
     expect(job.api_contract).toBeDefined()
+    expect(job.api_contract).toContain("/api/v2")
   })
 
   it("affects_fe:true but target=fe → enqueuer.enqueue NOT called (avoid loop)", async () => {

@@ -4,6 +4,7 @@ import type { ClaudeRunnerOpts, ClaudeResult } from "../claude-runner.js"
 import type { ReviewResult } from "./second-opinion.js"
 import type { MemoryStore, MemoryEntry } from "../memory-store.js"
 import type { GitLabClient } from "../gitlab.js"
+import type { StateStore } from "../state-store.js"
 
 // ─── Intent shape (impact variant only) ───────────────────────────────────────
 
@@ -12,6 +13,10 @@ export interface ImpactIntent {
   target: string
   prd: string
   ref: string
+  /** Human revise feedback to surface in the agent prompt (I1). */
+  feedback?: string
+  /** BE→FE API contract from Phase 2 handoff (I2). */
+  api_contract?: string
 }
 
 // ─── Injected dependencies ────────────────────────────────────────────────────
@@ -38,6 +43,8 @@ export interface Phase1Deps {
   reviewSolution: ReviewSolutionFn
   gitlab: Pick<GitLabClient, "createDraftMR" | "commentMR" | "getMR">
   memory: Pick<MemoryStore, "search">
+  /** State store used to persist job details after MR creation (C1). */
+  state: Pick<StateStore, "putJob">
   projectId: number
   controlPlaneDir: string
 }
@@ -53,7 +60,7 @@ const MAX_ATTEMPTS = 2
  *   gitlab.createDraftMR → { mrIid }
  */
 export async function runPhase1(deps: Phase1Deps): Promise<{ mrIid: number }> {
-  const { intent, registry, checkout, overlay, runClaude, reviewSolution, gitlab, memory, projectId, controlPlaneDir } =
+  const { intent, registry, checkout, overlay, runClaude, reviewSolution, gitlab, memory, state, projectId, controlPlaneDir } =
     deps
 
   // 1. Resolve registry entry
@@ -82,7 +89,14 @@ export async function runPhase1(deps: Phase1Deps): Promise<{ mrIid: number }> {
   let reviewNotes = ""
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const input = buildImpactInput({ prd: intent.prd, ref: intent.ref, memoryContext, reviewNotes })
+    const input = buildImpactInput({
+      prd: intent.prd,
+      ref: intent.ref,
+      memoryContext,
+      reviewNotes,
+      feedback: intent.feedback,
+      apiContract: intent.api_contract,
+    })
 
     const { stdout } = await runClaude({ cwd: checkoutDir, command: "/auto-impact", input })
     solution = stdout
@@ -101,6 +115,15 @@ export async function runPhase1(deps: Phase1Deps): Promise<{ mrIid: number }> {
 
   const mr = (await gitlab.createDraftMR(projectId, intent.ref, mrTitle, mrBody)) as { iid: number }
 
+  // C1: Persist job state so human-gate can retrieve target/prd/ref on /approve or /revise.
+  await state.putJob(String(mr.iid), {
+    target: intent.target,
+    prd: intent.prd,
+    ref: intent.ref,
+    phase: "phase1",
+    revisionCount: 0,
+  })
+
   return { mrIid: mr.iid }
 }
 
@@ -118,6 +141,8 @@ function buildImpactInput(opts: {
   ref: string
   memoryContext: string
   reviewNotes: string
+  feedback?: string
+  apiContract?: string
 }): string {
   const parts: string[] = [
     `PRD: ${opts.prd}`,
@@ -128,6 +153,14 @@ function buildImpactInput(opts: {
   }
   if (opts.reviewNotes) {
     parts.push(`\nReview feedback (please address):\n${opts.reviewNotes}`)
+  }
+  // I1: surface human revise feedback so the agent addresses it
+  if (opts.feedback) {
+    parts.push(`\nHuman feedback (please address):\n${opts.feedback}`)
+  }
+  // I2: include BE→FE API contract when this is an FE handoff job
+  if (opts.apiContract) {
+    parts.push(`\nAPI contract (implement against this interface):\n${opts.apiContract}`)
   }
   return parts.join("\n")
 }

@@ -128,9 +128,16 @@ export async function main() {
   const stateStore = new RedisStateStore(connection)
 
   // Real git checkout: clone/fetch source repo at ref into a temp directory.
+  // I3: if --branch <ref> fails (e.g. FE repo has no matching BE branch), fall back to
+  // a default clone without --branch so the FE handoff job can succeed on main.
   const checkout = async (opts: { sourceRepo: string; ref: string }): Promise<string> => {
     const dest = mkdtempSync(`${tmpdir()}/zdc-checkout-`)
-    await execFileAsync("git", ["clone", "--depth=1", "--branch", opts.ref, opts.sourceRepo, dest])
+    try {
+      await execFileAsync("git", ["clone", "--depth=1", "--branch", opts.ref, opts.sourceRepo, dest])
+    } catch {
+      // Branch not found in remote — clone default branch and let agent create its own.
+      await execFileAsync("git", ["clone", "--depth=1", opts.sourceRepo, dest])
+    }
     return dest
   }
 
@@ -152,6 +159,7 @@ export async function main() {
           getMR: gitlab.getMR.bind(gitlab),
         },
         memory,
+        state: stateStore,
         projectId,
         controlPlaneDir,
       }),
