@@ -1,0 +1,3 @@
+repos:
+  be: { source_repo: "git@gl:zdc/be-source.git", bundle: "be", control_plane_ref: "main" }
+  fe: { source_repo: "git@gl:zdc/fe-source.git", bundle: "fe", control_plane_ref: "main" }

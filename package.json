@@ -8,19 +8,20 @@
     "dev": "tsx src/server.ts"
   },
   "dependencies": {
-    "fastify": "latest",
-    "bullmq": "latest",
-    "ioredis": "latest",
-    "better-sqlite3": "latest",
     "@gitbeaker/rest": "latest",
+    "better-sqlite3": "latest",
+    "bullmq": "latest",
     "execa": "latest",
+    "fastify": "latest",
+    "ioredis": "latest",
+    "yaml": "^2.9.0",
     "zod": "latest"
   },
   "devDependencies": {
-    "typescript": "latest",
-    "vitest": "latest",
-    "tsx": "latest",
+    "@types/better-sqlite3": "latest",
     "@types/node": "latest",
-    "@types/better-sqlite3": "latest"
+    "tsx": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
   }
 }
