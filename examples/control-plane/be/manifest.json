@@ -1,0 +1,11 @@
+{
+  "commands": {
+    "impact": "/auto-impact",
+    "implement": "/auto-implement",
+    "preview": "/auto-preview",
+    "test": "/auto-test"
+  },
+  "description": "Backend (Node.js/TypeScript) agent bundle",
+  "language": "typescript",
+  "framework": "fastify"
+}

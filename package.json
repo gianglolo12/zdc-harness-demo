@@ -7,7 +7,8 @@
     "build": "tsc",
     "dev": "tsx src/server.ts",
     "start:server": "node dist/start-server.js",
-    "start:worker": "node dist/start-worker.js"
+    "start:worker": "node dist/start-worker.js",
+    "demo": "tsx examples/run-demo.ts"
   },
   "dependencies": {
     "@gitbeaker/rest": "latest",
