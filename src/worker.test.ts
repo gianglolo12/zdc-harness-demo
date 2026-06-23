@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { processJob } from "./worker.js"
+import { processJob, selectGitClient } from "./worker.js"
 import type { JobIntent, ImpactJobIntent } from "./classifier.js"
 import type { Phase2JobIntent } from "./pipeline/human-gate.js"
 
@@ -102,5 +102,34 @@ describe("processJob", () => {
     await processJob(phase2Intent as unknown as JobIntent, deps)
 
     expect(runPhase2).not.toHaveBeenCalled()
+  })
+})
+
+// ─── Provider selection ───────────────────────────────────────────────────────
+
+describe("selectGitClient", () => {
+  it("gitlab config → returns GitLabClient instance", () => {
+    const { client, kind } = selectGitClient({
+      gitProvider: "gitlab",
+      gitlabToken: "tok",
+      gitlabUrl: "https://gitlab.example.com",
+      webhookSecret: "s",
+      redisUrl: "redis://localhost:6379",
+      dryRun: false,
+    })
+    expect(kind).toBe("gitlab")
+    expect(client).toBeDefined()
+  })
+
+  it("github config → returns GitHubClient instance", () => {
+    const { client, kind } = selectGitClient({
+      gitProvider: "github",
+      github: { token: "ghp_tok", owner: "my-org", repo: "my-repo" },
+      webhookSecret: "s",
+      redisUrl: "redis://localhost:6379",
+      dryRun: false,
+    })
+    expect(kind).toBe("github")
+    expect(client).toBeDefined()
   })
 })

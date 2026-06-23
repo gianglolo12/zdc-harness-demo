@@ -1,6 +1,9 @@
 import type { JobIntent, ImpactJobIntent } from "./classifier.js"
 import type { Enqueuer } from "./queue.js"
 import type { Phase2JobIntent } from "./pipeline/human-gate.js"
+import type { Config } from "./config.js"
+import { GitLabClient, fromConfig as gitlabFromConfig } from "./gitlab.js"
+import { GitHubClient, fromConfig as githubFromConfig } from "./github.js"
 
 // ─── Injected dependencies interface ─────────────────────────────────────────
 
@@ -83,10 +86,26 @@ export async function processJob(intent: JobIntent, deps: WorkerDeps): Promise<v
   console.log(`[worker] Phase 1 complete for MR !${mrIid}`)
 }
 
+// ─── Provider selection ───────────────────────────────────────────────────────
+
+/**
+ * Select the correct git client based on cfg.gitProvider.
+ * Returns the client instance and a discriminant `kind` string.
+ * Exported for unit testing; main() uses it internally.
+ */
+export function selectGitClient(
+  cfg: Config,
+): { client: GitLabClient; kind: "gitlab" } | { client: GitHubClient; kind: "github" } {
+  if (cfg.gitProvider === "github") {
+    return { client: githubFromConfig(cfg), kind: "github" }
+  }
+  return { client: gitlabFromConfig(cfg), kind: "gitlab" }
+}
+
 // ─── Production entry point ───────────────────────────────────────────────────
 
 /**
- * Wires real Redis/BullMQ/GitLab and starts consuming jobs.
+ * Wires real Redis/BullMQ/GitLab or GitHub and starts consuming jobs.
  * NOT exercised by unit tests.
  */
 export async function main() {
@@ -97,7 +116,6 @@ export async function main() {
   const { runPhase2: runPhase2Full } = await import("./pipeline/phase2-implement.js")
   const { handleCommand: handleCommandFull } = await import("./pipeline/human-gate.js")
   const { isPaused } = await import("./kill-switch.js")
-  const { fromConfig: createGitLabClient } = await import("./gitlab.js")
   const { bullmqEnqueuer, createQueue } = await import("./queue.js")
   const { loadRegistry } = await import("./registry.js")
   const { overlay } = await import("./overlay.js")
@@ -127,8 +145,6 @@ export async function main() {
   const connection = new IORedis(cfg.redisUrl, { maxRetriesPerRequest: null })
   const queue = await createQueue("zdc-jobs", bullmqConnection)
   const enqueuer = bullmqEnqueuer(queue)
-  const gitlab = createGitLabClient(cfg)
-  const projectId = Number(process.env["GITLAB_PROJECT_ID"] ?? 0)
   const controlPlaneDir = process.env["CONTROL_PLANE_DIR"] ?? ""
 
   // Load registry from YAML file in the control plane directory.
@@ -153,6 +169,50 @@ export async function main() {
     return dest
   }
 
+  // Select the correct git client and build provider-agnostic method adapters.
+  // Both GitLabClient (takes projectId: number) and GitHubClient (takes repoRef: RepoRef)
+  // share the same method names — we bind the identifier here so pipeline closures
+  // receive the unified (mrIid, ...) signature they already expect.
+  const { client: gitClient, kind: gitKind } = selectGitClient(cfg)
+
+  // Adapter: normalises the first-arg difference between GitLab (number) and GitHub (RepoRef).
+  type GitAdapter = {
+    createDraftMR(sourceBranch: string, title: string, body: string): Promise<{ iid: number }>
+    commentMR(mrIid: number, body: string): Promise<unknown>
+    getMR(mrIid: number): Promise<unknown>
+    finalizeMR(mrIid: number): Promise<unknown>
+    setLabel(mrIid: number, label: string): Promise<unknown>
+  }
+
+  let git: GitAdapter
+  if (gitKind === "github") {
+    const gh = gitClient as import("./github.js").GitHubClient
+    const repoRef = cfg.github!
+    git = {
+      createDraftMR: (branch, title, body) => gh.createDraftMR(repoRef, branch, title, body),
+      commentMR: (mrIid, body) => gh.commentMR(repoRef, mrIid, body),
+      getMR: (mrIid) => gh.getMR(repoRef, mrIid),
+      finalizeMR: (mrIid) => gh.finalizeMR(repoRef, mrIid),
+      setLabel: (mrIid, label) => gh.setLabel(repoRef, mrIid, label),
+    }
+  } else {
+    const gl = gitClient as import("./gitlab.js").GitLabClient
+    const projectId = Number(process.env["GITLAB_PROJECT_ID"] ?? 0)
+    git = {
+      createDraftMR: async (branch, title, body) =>
+        gl.createDraftMR(projectId, branch, title, body) as Promise<{ iid: number }>,
+      commentMR: (mrIid, body) => gl.commentMR(projectId, mrIid, body),
+      getMR: (mrIid) => gl.getMR(projectId, mrIid),
+      finalizeMR: (mrIid) => gl.finalizeMR(projectId, mrIid),
+      setLabel: (mrIid, label) => gl.setLabel(projectId, mrIid, label),
+    }
+  }
+
+  // projectId is only used in WorkerDeps.gitlab.commentMR (dry-run comment path).
+  // For GitHub we use 0 as a placeholder — the real mrIid from the job is what matters;
+  // the repoRef is already bound in the git adapter above.
+  const projectId = gitKind === "github" ? 0 : Number(process.env["GITLAB_PROJECT_ID"] ?? 0)
+
   const deps: WorkerDeps = {
     isPaused: () => isPaused(),
     dryRun: cfg.dryRun,
@@ -166,9 +226,9 @@ export async function main() {
         runClaude,
         reviewSolution,
         gitlab: {
-          createDraftMR: gitlab.createDraftMR.bind(gitlab),
-          commentMR: gitlab.commentMR.bind(gitlab),
-          getMR: gitlab.getMR.bind(gitlab),
+          createDraftMR: (pid, branch, title, body) => git.createDraftMR(branch, title, body),
+          commentMR: (pid, mrIid, body) => git.commentMR(mrIid, body),
+          getMR: (pid, mrIid) => git.getMR(mrIid),
         },
         memory,
         state: stateStore,
@@ -184,8 +244,8 @@ export async function main() {
         overlay,
         runClaude,
         gitlab: {
-          finalizeMR: gitlab.finalizeMR.bind(gitlab),
-          commentMR: gitlab.commentMR.bind(gitlab),
+          finalizeMR: (pid, mrIid) => git.finalizeMR(mrIid),
+          commentMR: (pid, mrIid, body) => git.commentMR(mrIid, body),
         },
         memory,
         enqueuer,
@@ -197,14 +257,14 @@ export async function main() {
       handleCommandFull(intent, {
         state: stateStore,
         gitlab: {
-          commentMR: gitlab.commentMR.bind(gitlab),
-          setLabel: gitlab.setLabel.bind(gitlab),
+          commentMR: (pid, mrIid, body) => git.commentMR(mrIid, body),
+          setLabel: (pid, mrIid, label) => git.setLabel(mrIid, label),
         },
         enqueuer,
         dryRun: cfg.dryRun,
         projectId,
       }),
-    gitlab: { commentMR: gitlab.commentMR.bind(gitlab) },
+    gitlab: { commentMR: (pid, mrIid, body) => git.commentMR(mrIid, body) },
     enqueuer,
     projectId,
   }
