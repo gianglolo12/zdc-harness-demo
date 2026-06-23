@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@gitbeaker/rest": "latest",
+    "@octokit/rest": "^22.0.1",
     "better-sqlite3": "latest",
     "bullmq": "latest",
     "execa": "latest",
