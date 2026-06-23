@@ -9,9 +9,9 @@ const impactIntent: JobIntent = { type: "impact", target: "be", prd: "my-prd", r
 const phase2Intent: Phase2JobIntent = { type: "phase2", mrIid: 42, target: "be", prd: "my-prd", ref: "feature-x" }
 
 function makePhase1Deps(overrides?: Partial<Parameters<typeof processJob>[1]>) {
-  const runPhase1 = vi.fn<[ImpactJobIntent], Promise<{ mrIid: number }>>().mockResolvedValue({ mrIid: 99 })
-  const runPhase2 = vi.fn<[Phase2JobIntent], Promise<void>>().mockResolvedValue(undefined)
-  const handleCommand = vi.fn<[Extract<JobIntent, { mrIid: number }>], Promise<void>>().mockResolvedValue(undefined)
+  const runPhase1 = vi.fn<(intent: ImpactJobIntent) => Promise<{ mrIid: number }>>().mockResolvedValue({ mrIid: 99 })
+  const runPhase2 = vi.fn<(intent: Phase2JobIntent) => Promise<void>>().mockResolvedValue(undefined)
+  const handleCommand = vi.fn<(intent: Extract<JobIntent, { mrIid: number }>) => Promise<void>>().mockResolvedValue(undefined)
   const commentMR = vi.fn().mockResolvedValue(undefined)
   const enqueue = vi.fn().mockResolvedValue(undefined)
 

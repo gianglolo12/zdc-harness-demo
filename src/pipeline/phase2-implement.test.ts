@@ -21,7 +21,7 @@ function makeDeps(overrides: Partial<Phase2Deps> = {}): Phase2Deps {
 
   const deps: Phase2Deps = {
     intent: { type: "phase2", mrIid: 42, target: "be", prd: "my-prd", ref: "feature-x" },
-    registry: { repos: { be: { sourceRepo: "git@gitlab.com/org/be.git", bundle: "be" } } },
+    registry: { repos: { be: { sourceRepo: "git@gitlab.com/org/be.git", bundle: "be", controlPlaneRef: "main" } } },
     checkout,
     overlay,
     runClaude,
@@ -113,7 +113,7 @@ describe("runPhase2", () => {
   it("affects_fe:true but target=fe → enqueuer.enqueue NOT called (avoid loop)", async () => {
     const deps = makeDeps({
       intent: { type: "phase2", mrIid: 42, target: "fe", prd: "my-prd", ref: "feature-x" },
-      registry: { repos: { fe: { sourceRepo: "git@gitlab.com/org/fe.git", bundle: "fe" } } },
+      registry: { repos: { fe: { sourceRepo: "git@gitlab.com/org/fe.git", bundle: "fe", controlPlaneRef: "main" } } },
       runClaude: vi
         .fn()
         .mockResolvedValue({

@@ -113,8 +113,19 @@ export async function main() {
   const execFileAsync = promisify(execFile)
 
   const cfg = loadConfig(process.env as Record<string, string | undefined>)
+  // Parse redisUrl into plain options so BullMQ uses its own bundled ioredis —
+  // avoids the structural type mismatch between the top-level ioredis package
+  // and the ioredis copy bundled inside bullmq.
+  const redisUrl = new URL(cfg.redisUrl)
+  const bullmqConnection = {
+    host: redisUrl.hostname,
+    port: Number(redisUrl.port) || 6379,
+    ...(redisUrl.password ? { password: redisUrl.password } : {}),
+    maxRetriesPerRequest: null,
+  }
+  // Keep a separate ioredis instance for RedisStateStore (typed as unknown there).
   const connection = new IORedis(cfg.redisUrl, { maxRetriesPerRequest: null })
-  const queue = await createQueue("zdc-jobs", connection)
+  const queue = await createQueue("zdc-jobs", bullmqConnection)
   const enqueuer = bullmqEnqueuer(queue)
   const gitlab = createGitLabClient(cfg)
   const projectId = Number(process.env["GITLAB_PROJECT_ID"] ?? 0)
@@ -124,7 +135,8 @@ export async function main() {
   const registryText = readFileSync(`${controlPlaneDir}/registry.yaml`, "utf8")
   const registry = loadRegistry(registryText)
 
-  const memory = new SqliteMemoryStore()
+  const dbPath = process.env["SQLITE_MEMORY_DB"] ?? ":memory:"
+  const memory = new SqliteMemoryStore(dbPath)
   const stateStore = new RedisStateStore(connection)
 
   // Real git checkout: clone/fetch source repo at ref into a temp directory.
@@ -202,7 +214,7 @@ export async function main() {
     async (job) => {
       await processJob(job.data as JobIntent, deps)
     },
-    { connection },
+    { connection: bullmqConnection },
   )
 
   worker.on("failed", (job, err) => {

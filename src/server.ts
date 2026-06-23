@@ -57,9 +57,17 @@ export async function main() {
   const { loadConfig } = await import("./config.js")
 
   const cfg = loadConfig(process.env as Record<string, string | undefined>)
-  const { default: IORedis } = await import("ioredis")
-  const connection = new IORedis(cfg.redisUrl, { maxRetriesPerRequest: null })
-  const queue = await createQueue("zdc-jobs", connection)
+  // Parse redisUrl into plain options so BullMQ uses its own bundled ioredis —
+  // avoids the structural type mismatch between the top-level ioredis package
+  // and the ioredis copy bundled inside bullmq.
+  const redisUrl = new URL(cfg.redisUrl)
+  const bullmqConnection = {
+    host: redisUrl.hostname,
+    port: Number(redisUrl.port) || 6379,
+    ...(redisUrl.password ? { password: redisUrl.password } : {}),
+    maxRetriesPerRequest: null,
+  }
+  const queue = await createQueue("zdc-jobs", bullmqConnection)
   const enqueuer = bullmqEnqueuer(queue)
 
   const port = Number(process.env["PORT"] ?? 3000)

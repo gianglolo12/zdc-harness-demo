@@ -12,8 +12,13 @@ export type ImpactJobIntent = {
   /** BE→FE API contract handed off from Phase 2 (I2). */
   api_contract?: string
 }
+// Phase2JobIntent is imported lazily to avoid a circular dep — we inline the shape here.
+// The authoritative definition lives in ./pipeline/human-gate.ts.
+type Phase2JobIntentShape = { type: "phase2"; mrIid: number; target: string; prd: string; ref: string }
+
 export type JobIntent =
   | ImpactJobIntent
+  | Phase2JobIntentShape
   | { type: "approve" | "reject" | "abort"; mrIid: number }
   | { type: "revise"; mrIid: number; feedback: string }
 export type Classified = JobIntent | { type: "ignore"; reason: string }
