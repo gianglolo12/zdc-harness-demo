@@ -41,4 +41,77 @@ describe("loadConfig", () => {
       })
     ).toThrow()
   })
+
+  it("gitlab provider explicit still works", () => {
+    const c = loadConfig({
+      GIT_PROVIDER: "gitlab",
+      GITLAB_TOKEN: "t",
+      WEBHOOK_SECRET: "s",
+      REDIS_URL: "redis://x",
+      GITLAB_URL: "https://gl",
+    })
+    expect(c.gitProvider).toBe("gitlab")
+    expect(c.gitlabToken).toBe("t")
+  })
+
+  it("github provider valid", () => {
+    const c = loadConfig({
+      GIT_PROVIDER: "github",
+      GITHUB_TOKEN: "gh-tok",
+      GITHUB_OWNER: "myorg",
+      GITHUB_REPO: "myrepo",
+      WEBHOOK_SECRET: "s",
+      REDIS_URL: "redis://x",
+    })
+    expect(c.gitProvider).toBe("github")
+    expect(c.github).toEqual({ token: "gh-tok", owner: "myorg", repo: "myrepo" })
+    expect(c.gitlabToken).toBeUndefined()
+    expect(c.gitlabUrl).toBeUndefined()
+  })
+
+  it("github provider missing GITHUB_TOKEN throws", () => {
+    expect(() =>
+      loadConfig({
+        GIT_PROVIDER: "github",
+        GITHUB_OWNER: "myorg",
+        GITHUB_REPO: "myrepo",
+        WEBHOOK_SECRET: "s",
+        REDIS_URL: "redis://x",
+      })
+    ).toThrow()
+  })
+
+  it("github provider missing GITHUB_OWNER throws", () => {
+    expect(() =>
+      loadConfig({
+        GIT_PROVIDER: "github",
+        GITHUB_TOKEN: "gh-tok",
+        GITHUB_REPO: "myrepo",
+        WEBHOOK_SECRET: "s",
+        REDIS_URL: "redis://x",
+      })
+    ).toThrow()
+  })
+
+  it("github provider missing GITHUB_REPO throws", () => {
+    expect(() =>
+      loadConfig({
+        GIT_PROVIDER: "github",
+        GITHUB_TOKEN: "gh-tok",
+        GITHUB_OWNER: "myorg",
+        WEBHOOK_SECRET: "s",
+        REDIS_URL: "redis://x",
+      })
+    ).toThrow()
+  })
+
+  it("gitlab provider (default) missing GITLAB_TOKEN throws", () => {
+    expect(() =>
+      loadConfig({
+        WEBHOOK_SECRET: "s",
+        REDIS_URL: "redis://x",
+        GITLAB_URL: "https://gl",
+      })
+    ).toThrow()
+  })
 })
