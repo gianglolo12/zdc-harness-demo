@@ -123,7 +123,30 @@ volumes: { redis-data: {}, memory-data: {}, claude-auth: {} }
 
 > Worker cần `git` + `claude` CLI (đã cài trong image) + auth. Mount control-plane repo read-only; worker clone source repo vào thư mục tạm khi chạy.
 
-## 6. Cấu hình GitLab webhook
+## 6. GitHub mode
+
+To target a GitHub repository instead of GitLab, set:
+
+```
+GIT_PROVIDER=github
+GITHUB_OWNER=<org-or-user>
+GITHUB_REPO=<repo-name>
+GITHUB_TOKEN=<personal-access-token>   # scope: repo
+WEBHOOK_SECRET=<same-secret-as-below>
+```
+
+GitLab vars (`GITLAB_TOKEN`, `GITLAB_URL`, `GITLAB_PROJECT_ID`) become optional when `GIT_PROVIDER=github`.
+
+**GitHub webhook configuration** (Settings → Webhooks in the repo):
+- **Payload URL:** `https://<harness-host>/webhook`
+- **Content type:** `application/json`
+- **Secret:** = `WEBHOOK_SECRET`
+- **Signature header:** `X-Hub-Signature-256` (HMAC-SHA256)
+- **Events:** ✅ **Push events** + ✅ **Issue comments** (to catch `/approve` `/revise` `/reject` `/abort` on PRs)
+
+> **MR → PR mapping:** GitHubClient exposes the same method surface as GitLabClient (`createDraftMR`, `commentMR`, `getMR`, `finalizeMR`, `setLabel`). Internally, MRs map to GitHub Pull Requests; `mrIid` = PR number. The pipeline (phase1/phase2/human-gate) is unchanged.
+
+## 6b. Cấu hình GitLab webhook
 
 Tại **mỗi repo cần auto** (Settings → Webhooks):
 - **URL:** `https://<harness-host>/webhook`

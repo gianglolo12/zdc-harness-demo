@@ -77,12 +77,18 @@ At runtime the harness overlays `zc-docs/.claude/` + `zc-docs/<bundle>/` into th
 
 Copy `.env.example` → `.env` and fill in values.
 
+**Provider selection:** set `GIT_PROVIDER=gitlab` (default) for GitLab or `GIT_PROVIDER=github` for GitHub.
+
 | Variable | Required | Description |
 |---|---|---|
-| `GITLAB_TOKEN` | Yes | GitLab personal/project access token (api scope) |
-| `WEBHOOK_SECRET` | Yes | Token configured in GitLab webhook settings (`x-gitlab-token`) |
+| `GIT_PROVIDER` | No | `gitlab` (default) \| `github` — selects the Git provider |
+| `GITLAB_TOKEN` | Yes (gitlab) | GitLab personal/project access token (api scope) |
+| `GITLAB_URL` | Yes (gitlab) | GitLab base URL, e.g. `https://gitlab.example.com` |
+| `GITHUB_TOKEN` | Yes (github) | GitHub personal access token (repo scope) |
+| `GITHUB_OWNER` | Yes (github) | GitHub repo owner (user or org) |
+| `GITHUB_REPO` | Yes (github) | GitHub repo name |
+| `WEBHOOK_SECRET` | Yes | Webhook secret — `x-gitlab-token` (GitLab) or HMAC key for `X-Hub-Signature-256` (GitHub) |
 | `REDIS_URL` | Yes | Redis connection URL, e.g. `redis://localhost:6379` |
-| `GITLAB_URL` | Yes | GitLab base URL, e.g. `https://gitlab.example.com` |
 | `DRY_RUN` | No | Set `1` to stop after Phase 1 (draft MR only, no code generation) |
 | `HARNESS_PAUSED` | No | Set `1` to hold all incoming jobs without processing |
 
