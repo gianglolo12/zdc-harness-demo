@@ -147,9 +147,20 @@ export async function main() {
   const enqueuer = bullmqEnqueuer(queue)
   const controlPlaneDir = process.env["CONTROL_PLANE_DIR"] ?? ""
 
-  // Load registry from YAML file in the control plane directory.
-  const registryText = readFileSync(`${controlPlaneDir}/registry.yaml`, "utf8")
-  const registry = loadRegistry(registryText)
+  // Load registry: prefer the control-plane dir, fall back to the image-bundled
+  // registry.yaml, then to an empty registry. This lets the worker boot cleanly
+  // even before the control-plane volume is populated (jobs just have no targets yet).
+  const { existsSync } = await import("node:fs")
+  const registryCandidates = [`${controlPlaneDir}/registry.yaml`, `${process.cwd()}/registry.yaml`]
+  const registryPath = registryCandidates.find((p) => p && existsSync(p))
+  let registry
+  if (registryPath) {
+    registry = loadRegistry(readFileSync(registryPath, "utf8"))
+    console.log(`[worker] loaded registry from ${registryPath}`)
+  } else {
+    registry = { repos: {} }
+    console.warn(`[worker] no registry.yaml found (looked in: ${registryCandidates.join(", ")}); starting with empty registry`)
+  }
 
   const dbPath = process.env["SQLITE_MEMORY_DB"] ?? ":memory:"
   const memory = new SqliteMemoryStore(dbPath)
