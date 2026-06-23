@@ -50,7 +50,12 @@ export interface Config {
 }
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
-  const p = schema.parse(env)
+  // Treat empty-string env vars as unset. docker-compose interpolates an unset
+  // ${VAR} to "" (e.g. GITLAB_URL="" in github mode); "" is a present value that
+  // would fail .url()/.min(1) even though the field is optional. Coerce "" → undefined.
+  const cleaned: Record<string, string | undefined> = {}
+  for (const [k, v] of Object.entries(env)) cleaned[k] = v === "" ? undefined : v
+  const p = schema.parse(cleaned)
   const base: Config = {
     gitProvider: p.GIT_PROVIDER,
     webhookSecret: p.WEBHOOK_SECRET,
