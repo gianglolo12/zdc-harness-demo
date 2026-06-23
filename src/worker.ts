@@ -18,6 +18,12 @@ export interface WorkerDeps {
    * Phase2Deps are captured in the closure supplied by main() or injected by tests.
    */
   runPhase2: (intent: Phase2JobIntent) => Promise<void>
+  /**
+   * Pre-bound human-gate command handler. Accepts approve/revise/reject/abort
+   * intents; all HumanGateDeps are already captured in the closure supplied by
+   * main() or injected by tests.
+   */
+  handleCommand: (intent: Extract<JobIntent, { mrIid: number }>) => Promise<void>
   gitlab: {
     commentMR(projectId: number, mrIid: number, body: string): Promise<unknown>
   }
@@ -48,9 +54,13 @@ export async function processJob(intent: JobIntent, deps: WorkerDeps): Promise<v
     return
   }
 
+  if (intent.type === "approve" || intent.type === "revise" || intent.type === "reject" || intent.type === "abort") {
+    await deps.handleCommand(intent as Extract<JobIntent, { mrIid: number }>)
+    return
+  }
+
   if (intent.type !== "impact") {
-    // approve/revise/reject/abort handled by Task 13 human-gate handler
-    console.log("[worker] non-impact intent deferred to human-gate handler:", intent.type)
+    console.log("[worker] unknown intent type, skipping:", intent.type)
     return
   }
 
@@ -85,6 +95,7 @@ export async function main() {
   const { loadConfig } = await import("./config.js")
   const { runPhase1: runPhase1Full } = await import("./pipeline/phase1-impact.js")
   const { runPhase2: runPhase2Full } = await import("./pipeline/phase2-implement.js")
+  const { handleCommand: handleCommandFull } = await import("./pipeline/human-gate.js")
   const { isPaused } = await import("./kill-switch.js")
   const { fromConfig: createGitLabClient } = await import("./gitlab.js")
   const { bullmqEnqueuer, createQueue } = await import("./queue.js")
@@ -93,6 +104,7 @@ export async function main() {
   const { runClaude } = await import("./claude-runner.js")
   const { reviewSolution } = await import("./pipeline/second-opinion.js")
   const { SqliteMemoryStore } = await import("./memory-store.js")
+  const { RedisStateStore } = await import("./state-store.js")
   const { readFileSync } = await import("node:fs")
   const { execFile } = await import("node:child_process")
   const { promisify } = await import("node:util")
@@ -113,6 +125,7 @@ export async function main() {
   const registry = loadRegistry(registryText)
 
   const memory = new SqliteMemoryStore()
+  const stateStore = new RedisStateStore(connection)
 
   // Real git checkout: clone/fetch source repo at ref into a temp directory.
   const checkout = async (opts: { sourceRepo: string; ref: string }): Promise<string> => {
@@ -158,6 +171,18 @@ export async function main() {
         enqueuer,
         projectId,
         controlPlaneDir,
+      }),
+    // Pre-bound closure: captures HumanGateDeps; processJob only passes the intent.
+    handleCommand: (intent) =>
+      handleCommandFull(intent, {
+        state: stateStore,
+        gitlab: {
+          commentMR: gitlab.commentMR.bind(gitlab),
+          setLabel: gitlab.setLabel.bind(gitlab),
+        },
+        enqueuer,
+        dryRun: cfg.dryRun,
+        projectId,
       }),
     gitlab: { commentMR: gitlab.commentMR.bind(gitlab) },
     enqueuer,

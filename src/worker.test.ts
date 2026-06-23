@@ -11,6 +11,7 @@ const phase2Intent: Phase2JobIntent = { type: "phase2", mrIid: 42, target: "be",
 function makePhase1Deps(overrides?: Partial<Parameters<typeof processJob>[1]>) {
   const runPhase1 = vi.fn<[ImpactJobIntent], Promise<{ mrIid: number }>>().mockResolvedValue({ mrIid: 99 })
   const runPhase2 = vi.fn<[Phase2JobIntent], Promise<void>>().mockResolvedValue(undefined)
+  const handleCommand = vi.fn<[Extract<JobIntent, { mrIid: number }>], Promise<void>>().mockResolvedValue(undefined)
   const commentMR = vi.fn().mockResolvedValue(undefined)
   const enqueue = vi.fn().mockResolvedValue(undefined)
 
@@ -19,13 +20,14 @@ function makePhase1Deps(overrides?: Partial<Parameters<typeof processJob>[1]>) {
     dryRun: false,
     runPhase1,
     runPhase2,
+    handleCommand,
     gitlab: { commentMR },
     enqueuer: { enqueue },
     projectId: 1,
     ...overrides,
   }
 
-  return { deps, runPhase1, runPhase2, commentMR, enqueue }
+  return { deps, runPhase1, runPhase2, handleCommand, commentMR, enqueue }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -63,14 +65,25 @@ describe("processJob", () => {
     expect(enqueue).not.toHaveBeenCalled()
   })
 
-  it("non-impact intent (approve) + not paused → phase1 NOT called (handled by future task)", async () => {
-    const { deps, runPhase1 } = makePhase1Deps()
+  it("approve intent + not paused → handleCommand called, runPhase1 NOT called, runPhase2 NOT called", async () => {
+    const { deps, runPhase1, runPhase2, handleCommand } = makePhase1Deps()
     const approveIntent: JobIntent = { type: "approve", mrIid: 5 }
 
     await processJob(approveIntent, deps)
 
-    // Task 12 only handles impact; others are no-ops here
+    expect(handleCommand).toHaveBeenCalledOnce()
+    expect(handleCommand).toHaveBeenCalledWith(approveIntent)
     expect(runPhase1).not.toHaveBeenCalled()
+    expect(runPhase2).not.toHaveBeenCalled()
+  })
+
+  it("approve intent + paused → handleCommand NOT called (kill-switch wins)", async () => {
+    const { deps, handleCommand } = makePhase1Deps({ isPaused: () => true })
+    const approveIntent: JobIntent = { type: "approve", mrIid: 5 }
+
+    await processJob(approveIntent, deps)
+
+    expect(handleCommand).not.toHaveBeenCalled()
   })
 
   it("phase2 intent → runPhase2 called, runPhase1 NOT called", async () => {
