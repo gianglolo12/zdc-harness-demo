@@ -1,13 +1,13 @@
 import { describe, it, expect, vi } from "vitest"
 import { processJob } from "./worker.js"
-import type { JobIntent } from "./classifier.js"
+import type { JobIntent, ImpactJobIntent } from "./classifier.js"
 
 // ─── Shared fakes ─────────────────────────────────────────────────────────────
 
 const impactIntent: JobIntent = { type: "impact", target: "be", prd: "my-prd", ref: "feature-x" }
 
 function makePhase1Deps(overrides?: Partial<Parameters<typeof processJob>[1]>) {
-  const runPhase1 = vi.fn().mockResolvedValue({ mrIid: 99 })
+  const runPhase1 = vi.fn<[ImpactJobIntent], Promise<{ mrIid: number }>>().mockResolvedValue({ mrIid: 99 })
   const commentMR = vi.fn().mockResolvedValue(undefined)
   const enqueue = vi.fn().mockResolvedValue(undefined)
 

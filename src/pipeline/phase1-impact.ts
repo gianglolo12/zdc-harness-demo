@@ -68,8 +68,12 @@ export async function runPhase1(deps: Phase1Deps): Promise<{ mrIid: number }> {
   // 3. Overlay agent bundle into the checkout
   await overlay({ checkoutDir, controlPlaneDir, bundle: entry.bundle })
 
-  // 4. Load relevant memory entries
-  const memoryEntries: MemoryEntry[] = memory.search({ text: intent.prd, area: intent.target })
+  // 4. Load relevant memory entries.
+  // Search by the PRD identifier so FTS matches issue/rootCause/fix text that
+  // references this PRD. The `area` filter is intentionally omitted: intent.target
+  // is a registry bundle key ("be"/"fe"), not a semantic memory area ("payment"/"auth"),
+  // so filtering by it would exclude all rows.
+  const memoryEntries: MemoryEntry[] = memory.search({ text: intent.prd })
 
   const memoryContext = buildMemoryContext(memoryEntries)
 

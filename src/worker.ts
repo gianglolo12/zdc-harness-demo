@@ -1,5 +1,4 @@
-import type { JobIntent } from "./classifier.js"
-import type { Phase1Deps } from "./pipeline/phase1-impact.js"
+import type { JobIntent, ImpactJobIntent } from "./classifier.js"
 import type { Enqueuer } from "./queue.js"
 
 // ─── Injected dependencies interface ─────────────────────────────────────────
@@ -7,8 +6,12 @@ import type { Enqueuer } from "./queue.js"
 export interface WorkerDeps {
   isPaused: () => boolean
   dryRun: boolean
-  /** Runs Phase 1 pipeline; returns { mrIid } */
-  runPhase1: (deps: Phase1Deps) => Promise<{ mrIid: number }>
+  /**
+   * Pre-bound Phase 1 runner. Accepts only the impact intent; all other
+   * Phase1Deps (registry, checkout, overlay, runClaude, etc.) are already
+   * captured in the closure supplied by main() or injected by tests.
+   */
+  runPhase1: (intent: ImpactJobIntent) => Promise<{ mrIid: number }>
   gitlab: {
     commentMR(projectId: number, mrIid: number, body: string): Promise<unknown>
   }
@@ -39,14 +42,10 @@ export async function processJob(intent: JobIntent, deps: WorkerDeps): Promise<v
     return
   }
 
-  // Cast is safe — we checked intent.type above
-  const impactIntent = intent as Extract<JobIntent, { type: "impact" }>
+  // Narrowed by the intent.type !== "impact" guard above — no cast needed.
+  const impactIntent = intent as ImpactJobIntent
 
-  const { mrIid } = await deps.runPhase1({
-    intent: impactIntent,
-    // remaining Phase1Deps are provided by main() in production;
-    // tests inject a mock runPhase1 so these are never reached in tests.
-  } as Phase1Deps)
+  const { mrIid } = await deps.runPhase1(impactIntent)
 
   if (deps.dryRun) {
     await deps.gitlab.commentMR(
@@ -72,10 +71,21 @@ export async function main() {
   const { Worker } = await import("bullmq")
   const { default: IORedis } = await import("ioredis")
   const { loadConfig } = await import("./config.js")
-  const { runPhase1 } = await import("./pipeline/phase1-impact.js")
+  const { runPhase1: runPhase1Full } = await import("./pipeline/phase1-impact.js")
   const { isPaused } = await import("./kill-switch.js")
   const { fromConfig: createGitLabClient } = await import("./gitlab.js")
   const { bullmqEnqueuer, createQueue } = await import("./queue.js")
+  const { loadRegistry } = await import("./registry.js")
+  const { overlay } = await import("./overlay.js")
+  const { runClaude } = await import("./claude-runner.js")
+  const { reviewSolution } = await import("./pipeline/second-opinion.js")
+  const { SqliteMemoryStore } = await import("./memory-store.js")
+  const { readFileSync } = await import("node:fs")
+  const { execFile } = await import("node:child_process")
+  const { promisify } = await import("node:util")
+  const { mkdtempSync } = await import("node:fs")
+  const { tmpdir } = await import("node:os")
+  const execFileAsync = promisify(execFile)
 
   const cfg = loadConfig(process.env as Record<string, string | undefined>)
   const connection = new IORedis(cfg.redisUrl, { maxRetriesPerRequest: null })
@@ -83,11 +93,42 @@ export async function main() {
   const enqueuer = bullmqEnqueuer(queue)
   const gitlab = createGitLabClient(cfg)
   const projectId = Number(process.env["GITLAB_PROJECT_ID"] ?? 0)
+  const controlPlaneDir = process.env["CONTROL_PLANE_DIR"] ?? ""
+
+  // Load registry from YAML file in the control plane directory.
+  const registryText = readFileSync(`${controlPlaneDir}/registry.yaml`, "utf8")
+  const registry = loadRegistry(registryText)
+
+  const memory = new SqliteMemoryStore()
+
+  // Real git checkout: clone/fetch source repo at ref into a temp directory.
+  const checkout = async (opts: { sourceRepo: string; ref: string }): Promise<string> => {
+    const dest = mkdtempSync(`${tmpdir()}/zdc-checkout-`)
+    await execFileAsync("git", ["clone", "--depth=1", "--branch", opts.ref, opts.sourceRepo, dest])
+    return dest
+  }
 
   const deps: WorkerDeps = {
     isPaused: () => isPaused(),
     dryRun: cfg.dryRun,
-    runPhase1,
+    // Pre-bound closure: captures all Phase1Deps; processJob only passes the intent.
+    runPhase1: (intent) =>
+      runPhase1Full({
+        intent,
+        registry,
+        checkout,
+        overlay,
+        runClaude,
+        reviewSolution,
+        gitlab: {
+          createDraftMR: gitlab.createDraftMR.bind(gitlab),
+          commentMR: gitlab.commentMR.bind(gitlab),
+          getMR: gitlab.getMR.bind(gitlab),
+        },
+        memory,
+        projectId,
+        controlPlaneDir,
+      }),
     gitlab: { commentMR: gitlab.commentMR.bind(gitlab) },
     enqueuer,
     projectId,

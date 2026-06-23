@@ -54,4 +54,33 @@ describe("reviewSolution", () => {
     expect(result.verdict).toBe("fail")
     expect(result.notes).toBe("unparseable review output")
   })
+
+  it("M2: unrecognised verdict ('maybe') → treated as fail, not leaked", async () => {
+    const fakeRunClaude = vi.fn().mockResolvedValue({
+      stdout: JSON.stringify({ verdict: "maybe", notes: "not sure" }),
+    })
+
+    const result = await reviewSolution({
+      cwd: "/tmp/test",
+      solution: "some solution text",
+      runClaude: fakeRunClaude,
+    })
+
+    expect(result.verdict).toBe("fail")
+    expect(result.notes).toBe("not sure")
+  })
+
+  it("M2: missing verdict field → treated as fail", async () => {
+    const fakeRunClaude = vi.fn().mockResolvedValue({
+      stdout: JSON.stringify({ notes: "looks ok" }),
+    })
+
+    const result = await reviewSolution({
+      cwd: "/tmp/test",
+      solution: "some solution text",
+      runClaude: fakeRunClaude,
+    })
+
+    expect(result.verdict).toBe("fail")
+  })
 })

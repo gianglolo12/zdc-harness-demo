@@ -7,12 +7,12 @@ export type Job = {
   revisionCount: number
 }
 
-/** Interface that any state backend must satisfy. */
+/** Interface that any state backend must satisfy. All methods are async. */
 export interface StateStore {
-  putJob(mrIid: string, job: Job): void
-  getJob(mrIid: string): Job | undefined
+  putJob(mrIid: string, job: Job): Promise<void>
+  getJob(mrIid: string): Promise<Job | undefined>
   /** Increment revision counter for the given MR IID and return new value. */
-  incRevision(mrIid: string): number
+  incRevision(mrIid: string): Promise<number>
 }
 
 /** In-memory implementation — used in tests; no Redis required. */
@@ -20,15 +20,15 @@ export class InMemoryStateStore implements StateStore {
   private jobs = new Map<string, Job>()
   private revisions = new Map<string, number>()
 
-  putJob(mrIid: string, job: Job): void {
+  async putJob(mrIid: string, job: Job): Promise<void> {
     this.jobs.set(mrIid, job)
   }
 
-  getJob(mrIid: string): Job | undefined {
+  async getJob(mrIid: string): Promise<Job | undefined> {
     return this.jobs.get(mrIid)
   }
 
-  incRevision(mrIid: string): number {
+  async incRevision(mrIid: string): Promise<number> {
     const next = (this.revisions.get(mrIid) ?? 0) + 1
     this.revisions.set(mrIid, next)
     return next
@@ -36,7 +36,9 @@ export class InMemoryStateStore implements StateStore {
 }
 
 /**
- * Redis-backed implementation stub.
+ * Redis-backed implementation.
+ * Stores jobs as JSON under key `job:<mrIid>`.
+ * Tracks revision counters under key `rev:<mrIid>` via INCR.
  * Requires a live Redis; not used in unit tests.
  */
 export class RedisStateStore implements StateStore {
@@ -48,29 +50,16 @@ export class RedisStateStore implements StateStore {
     this.redis = redisClient
   }
 
-  async putJobAsync(mrIid: string, job: Job): Promise<void> {
+  async putJob(mrIid: string, job: Job): Promise<void> {
     await this.redis.set(`job:${mrIid}`, JSON.stringify(job))
   }
 
-  async getJobAsync(mrIid: string): Promise<Job | undefined> {
+  async getJob(mrIid: string): Promise<Job | undefined> {
     const raw = await this.redis.get(`job:${mrIid}`)
     return raw ? (JSON.parse(raw) as Job) : undefined
   }
 
-  async incRevisionAsync(mrIid: string): Promise<number> {
+  async incRevision(mrIid: string): Promise<number> {
     return this.redis.incr(`rev:${mrIid}`)
-  }
-
-  // Sync interface stubs — throw to force async usage in production.
-  putJob(_mrIid: string, _job: Job): void {
-    throw new Error("Use putJobAsync for RedisStateStore")
-  }
-
-  getJob(_mrIid: string): Job | undefined {
-    throw new Error("Use getJobAsync for RedisStateStore")
-  }
-
-  incRevision(_mrIid: string): number {
-    throw new Error("Use incRevisionAsync for RedisStateStore")
   }
 }
