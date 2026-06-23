@@ -5,7 +5,9 @@
   "scripts": {
     "test": "vitest run",
     "build": "tsc",
-    "dev": "tsx src/server.ts"
+    "dev": "tsx src/server.ts",
+    "start:server": "node dist/start-server.js",
+    "start:worker": "node dist/start-worker.js"
   },
   "dependencies": {
     "@gitbeaker/rest": "latest",

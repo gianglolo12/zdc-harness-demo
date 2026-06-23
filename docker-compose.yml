@@ -1,0 +1,50 @@
+# ZDC Harness — Dokploy / docker-compose deployment.
+# server (webhook) + worker (job processor) + redis. See docs/deployment-guide.md.
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  server:
+    build: .
+    restart: unless-stopped
+    command: node dist/start-server.js
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - GITLAB_TOKEN=${GITLAB_TOKEN}
+      - GITLAB_URL=${GITLAB_URL}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - PORT=3000
+      - DRY_RUN=${DRY_RUN:-1}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: node dist/start-worker.js
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - GITLAB_TOKEN=${GITLAB_TOKEN}
+      - GITLAB_URL=${GITLAB_URL}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - GITLAB_PROJECT_ID=${GITLAB_PROJECT_ID}
+      - CONTROL_PLANE_DIR=/control-plane
+      - SQLITE_MEMORY_DB=/data/memory.sqlite
+      - DRY_RUN=${DRY_RUN:-1}
+      - HARNESS_PAUSED=${HARNESS_PAUSED:-0}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - memory-data:/data
+      - control-plane:/control-plane
+    depends_on:
+      - redis
+
+volumes:
+  redis-data: {}
+  memory-data: {}
+  control-plane: {}
