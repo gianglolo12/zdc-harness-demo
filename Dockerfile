@@ -10,7 +10,9 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+# npm install (not ci): package.json pins several deps to "latest" (no frozen lockfile
+# discipline), which npm ci rejects as out-of-sync. install resolves cleanly.
+RUN npm install
 
 COPY . .
 RUN npm run build
