@@ -1,0 +1,26 @@
+{
+  "name": "zdc-harness",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc",
+    "dev": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "fastify": "latest",
+    "bullmq": "latest",
+    "ioredis": "latest",
+    "better-sqlite3": "latest",
+    "@gitbeaker/rest": "latest",
+    "execa": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "typescript": "latest",
+    "vitest": "latest",
+    "tsx": "latest",
+    "@types/node": "latest",
+    "@types/better-sqlite3": "latest"
+  }
+}
