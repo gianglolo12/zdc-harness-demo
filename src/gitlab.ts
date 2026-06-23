@@ -5,6 +5,7 @@ export interface GitLabApi {
   MergeRequests: {
     create(projectId: number, sourceBranch: string, targetBranch: string, title: string, opts?: object): Promise<unknown>
     show(projectId: number, mrIid: number): Promise<unknown>
+    edit(projectId: number, mrIid: number, opts: object): Promise<unknown>
   }
   MergeRequestNotes: {
     create(projectId: number, mrIid: number, body: string): Promise<unknown>
@@ -32,6 +33,10 @@ export class GitLabClient {
 
   async getMR(projectId: number, mrIid: number): Promise<unknown> {
     return this.api.MergeRequests.show(projectId, mrIid)
+  }
+
+  async setLabel(projectId: number, mrIid: number, label: string): Promise<unknown> {
+    return this.api.MergeRequests.edit(projectId, mrIid, { labels: label })
   }
 }
 
