@@ -37,10 +37,12 @@ services:
       - SQLITE_MEMORY_DB=/data/memory.sqlite
       - DRY_RUN=${DRY_RUN:-1}
       - HARNESS_PAUSED=${HARNESS_PAUSED:-0}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
       - memory-data:/data
       - control-plane:/control-plane
+      # Claude subscription auth (claude -p). Populate once via Open Terminal:
+      #   claude   → /login (subscription). Credentials persist in this volume.
+      - claude-auth:/root/.claude
     depends_on:
       - redis
 
@@ -48,3 +50,4 @@ volumes:
   redis-data: {}
   memory-data: {}
   control-plane: {}
+  claude-auth: {}

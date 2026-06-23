@@ -10,7 +10,7 @@ Hướng dẫn deploy harness v1: Docker + Redis + GitLab webhook. Harness gồm
 |---|---|
 | **Node ≥ 20** | runtime harness |
 | **Redis** | BullMQ queue + state store |
-| **`claude` CLI** trên máy chạy **worker** | worker spawn `claude -p` để chạy agent bundle. Cần `ANTHROPIC_API_KEY` hoặc đăng nhập sẵn |
+| **`claude` CLI** trên máy chạy **worker** | worker spawn `claude -p` để chạy agent bundle. Dùng **Claude subscription** — login 1 lần (`claude` → `/login`), credentials persist trong volume `claude-auth`. KHÔNG dùng API key |
 | **git** trên worker | worker clone source repo + control-plane repo |
 | **GitLab access token** scope `api` | tạo/sửa MR, comment |
 | **Control-plane repo** đã clone sẵn trên worker | chứa `.claude/` shared + `be/ fe/` agent bundle (đường dẫn = `CONTROL_PLANE_DIR`) |
@@ -31,7 +31,8 @@ Hướng dẫn deploy harness v1: Docker + Redis + GitLab webhook. Harness gồm
 | `PORT` | tùy | cổng server (mặc định 3000) |
 | `DRY_RUN` | tùy | `1` = chỉ Phase 1 (impact+draft MR), KHÔNG code. Bật lúc đầu |
 | `HARNESS_PAUSED` | tùy | `1` = kill-switch, worker giữ job không xử lý |
-| `ANTHROPIC_API_KEY` | ✅ (worker) | cho `claude` CLI |
+
+> **Claude auth (worker):** KHÔNG dùng `ANTHROPIC_API_KEY`. Dùng **Claude subscription** — sau khi deploy, vào worker container (Dokploy → Open Terminal) chạy `claude` rồi `/login` một lần. Credentials lưu ở `/root/.claude` (volume `claude-auth`), tồn tại qua restart/redeploy.
 
 ## 3. Entry points (cần thêm)
 
@@ -113,11 +114,11 @@ services:
     volumes:
       - "./control-plane:/control-plane:ro"   # control-plane repo (PRD+agent bundle)
       - "memory-data:/data"
-      - "~/.claude:/root/.claude:ro"          # hoặc dùng ANTHROPIC_API_KEY
+      - "claude-auth:/root/.claude"           # Claude subscription auth (login 1 lần qua terminal)
     depends_on: [ redis ]
     # scale: docker compose up --scale worker=3
 
-volumes: { redis-data: {}, memory-data: {} }
+volumes: { redis-data: {}, memory-data: {}, claude-auth: {} }
 ```
 
 > Worker cần `git` + `claude` CLI (đã cài trong image) + auth. Mount control-plane repo read-only; worker clone source repo vào thư mục tạm khi chạy.
@@ -144,11 +145,11 @@ Test: push 1 commit lên **feature branch** với message chứa `[zdc:update-be
 - **Scale worker:** `docker compose up --scale worker=N` (nhiều job song song; BullMQ chia việc).
 - **Logs:** server in `listening on :PORT`; worker in `[worker] job <id> failed` khi lỗi.
 - **Reverse proxy:** đặt server sau nginx/traefik với TLS; chỉ expose `/webhook`.
-- **Bảo mật:** giữ `GITLAB_TOKEN`/`ANTHROPIC_API_KEY` trong secret manager, không commit `.env`.
+- **Bảo mật:** giữ `GITLAB_TOKEN` trong secret manager, không commit `.env`. Claude auth nằm trong volume `claude-auth` (không phải env).
 
 ## 9. Câu hỏi chưa giải
 
-- **Auth `claude` trong container:** dùng `ANTHROPIC_API_KEY` hay mount `~/.claude`? Chốt theo chính sách bảo mật team.
+- **Auth `claude` trong container:** dùng **Claude subscription** — login 1 lần qua Open Terminal (`claude` → `/login`), persist trong volume `claude-auth`. Cần re-login khi credentials hết hạn.
 - **Source repo checkout:** worker `git clone` mỗi job → cân nhắc cache/bare-clone cho repo lớn để giảm thời gian.
 - **RedisStateStore** chưa có test tích hợp với Redis thật (chỉ InMemory được test) — nên smoke-test trước production.
 - **Concurrency limit** cho worker pool chưa cấu hình tường minh (BullMQ mặc định) — đặt theo budget Claude.
