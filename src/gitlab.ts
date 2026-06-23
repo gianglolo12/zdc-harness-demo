@@ -38,6 +38,13 @@ export class GitLabClient {
   async setLabel(projectId: number, mrIid: number, label: string): Promise<unknown> {
     return this.api.MergeRequests.edit(projectId, mrIid, { labels: label })
   }
+
+  /** Un-drafts an MR by stripping the "Draft: " prefix from its title. */
+  async finalizeMR(projectId: number, mrIid: number): Promise<unknown> {
+    const mr = (await this.api.MergeRequests.show(projectId, mrIid)) as { title: string }
+    const title = mr.title.replace(/^Draft:\s*/i, "")
+    return this.api.MergeRequests.edit(projectId, mrIid, { title })
+  }
 }
 
 export function fromConfig(cfg: Config): GitLabClient {

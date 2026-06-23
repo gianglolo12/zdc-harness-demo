@@ -1,5 +1,6 @@
 import type { JobIntent, ImpactJobIntent } from "./classifier.js"
 import type { Enqueuer } from "./queue.js"
+import type { Phase2JobIntent } from "./pipeline/human-gate.js"
 
 // ─── Injected dependencies interface ─────────────────────────────────────────
 
@@ -12,6 +13,11 @@ export interface WorkerDeps {
    * captured in the closure supplied by main() or injected by tests.
    */
   runPhase1: (intent: ImpactJobIntent) => Promise<{ mrIid: number }>
+  /**
+   * Pre-bound Phase 2 runner. Accepts only the phase2 intent; all other
+   * Phase2Deps are captured in the closure supplied by main() or injected by tests.
+   */
+  runPhase2: (intent: Phase2JobIntent) => Promise<void>
   gitlab: {
     commentMR(projectId: number, mrIid: number, body: string): Promise<unknown>
   }
@@ -33,6 +39,12 @@ export interface WorkerDeps {
 export async function processJob(intent: JobIntent, deps: WorkerDeps): Promise<void> {
   if (deps.isPaused()) {
     console.log("[worker] kill-switch active — job held:", intent.type)
+    return
+  }
+
+  if (intent.type === "phase2") {
+    await deps.runPhase2(intent as Phase2JobIntent)
+    console.log(`[worker] Phase 2 complete for MR !${intent.mrIid}`)
     return
   }
 
@@ -72,6 +84,7 @@ export async function main() {
   const { default: IORedis } = await import("ioredis")
   const { loadConfig } = await import("./config.js")
   const { runPhase1: runPhase1Full } = await import("./pipeline/phase1-impact.js")
+  const { runPhase2: runPhase2Full } = await import("./pipeline/phase2-implement.js")
   const { isPaused } = await import("./kill-switch.js")
   const { fromConfig: createGitLabClient } = await import("./gitlab.js")
   const { bullmqEnqueuer, createQueue } = await import("./queue.js")
@@ -126,6 +139,23 @@ export async function main() {
           getMR: gitlab.getMR.bind(gitlab),
         },
         memory,
+        projectId,
+        controlPlaneDir,
+      }),
+    // Pre-bound closure: captures all Phase2Deps; processJob only passes the intent.
+    runPhase2: (intent) =>
+      runPhase2Full({
+        intent,
+        registry,
+        checkout,
+        overlay,
+        runClaude,
+        gitlab: {
+          finalizeMR: gitlab.finalizeMR.bind(gitlab),
+          commentMR: gitlab.commentMR.bind(gitlab),
+        },
+        memory,
+        enqueuer,
         projectId,
         controlPlaneDir,
       }),

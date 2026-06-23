@@ -1,13 +1,16 @@
 import { describe, it, expect, vi } from "vitest"
 import { processJob } from "./worker.js"
 import type { JobIntent, ImpactJobIntent } from "./classifier.js"
+import type { Phase2JobIntent } from "./pipeline/human-gate.js"
 
 // ─── Shared fakes ─────────────────────────────────────────────────────────────
 
 const impactIntent: JobIntent = { type: "impact", target: "be", prd: "my-prd", ref: "feature-x" }
+const phase2Intent: Phase2JobIntent = { type: "phase2", mrIid: 42, target: "be", prd: "my-prd", ref: "feature-x" }
 
 function makePhase1Deps(overrides?: Partial<Parameters<typeof processJob>[1]>) {
   const runPhase1 = vi.fn<[ImpactJobIntent], Promise<{ mrIid: number }>>().mockResolvedValue({ mrIid: 99 })
+  const runPhase2 = vi.fn<[Phase2JobIntent], Promise<void>>().mockResolvedValue(undefined)
   const commentMR = vi.fn().mockResolvedValue(undefined)
   const enqueue = vi.fn().mockResolvedValue(undefined)
 
@@ -15,13 +18,14 @@ function makePhase1Deps(overrides?: Partial<Parameters<typeof processJob>[1]>) {
     isPaused: () => false,
     dryRun: false,
     runPhase1,
+    runPhase2,
     gitlab: { commentMR },
     enqueuer: { enqueue },
     projectId: 1,
     ...overrides,
   }
 
-  return { deps, runPhase1, commentMR, enqueue }
+  return { deps, runPhase1, runPhase2, commentMR, enqueue }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -67,5 +71,23 @@ describe("processJob", () => {
 
     // Task 12 only handles impact; others are no-ops here
     expect(runPhase1).not.toHaveBeenCalled()
+  })
+
+  it("phase2 intent → runPhase2 called, runPhase1 NOT called", async () => {
+    const { deps, runPhase1, runPhase2 } = makePhase1Deps()
+
+    await processJob(phase2Intent as unknown as JobIntent, deps)
+
+    expect(runPhase2).toHaveBeenCalledOnce()
+    expect(runPhase2).toHaveBeenCalledWith(phase2Intent)
+    expect(runPhase1).not.toHaveBeenCalled()
+  })
+
+  it("phase2 intent + paused → runPhase2 NOT called", async () => {
+    const { deps, runPhase2 } = makePhase1Deps({ isPaused: () => true })
+
+    await processJob(phase2Intent as unknown as JobIntent, deps)
+
+    expect(runPhase2).not.toHaveBeenCalled()
   })
 })
