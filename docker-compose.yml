@@ -22,8 +22,10 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - GITHUB_OWNER=${GITHUB_OWNER}
       - GITHUB_REPO=${GITHUB_REPO}
-    ports:
-      - "3000:3000"
+    # No host port binding (avoids host :3000 conflicts on shared Dokploy VPS).
+    # Expose 3000 on the compose network; route public traffic via a Dokploy Domain (Traefik) → port 3000.
+    expose:
+      - "3000"
     depends_on:
       - redis
 
