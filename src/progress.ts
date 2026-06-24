@@ -83,7 +83,19 @@ export function createProgress(redis: ProgressRedis): Progress {
     }
   }
 
-  async function report(key: string, patch: ProgressPatch): Promise<void> {
+  // Serialize all report() calls: each does a read-modify-write of the JSON
+  // record, and the worker fires many concurrent (un-awaited) reports per job
+  // (step transitions + every tool_use activity). Without serialization those
+  // races clobber each other (lost updates → empty activity feed, stuck steps).
+  // One in-process chain keeps them sequential (single worker, low volume).
+  let chain: Promise<void> = Promise.resolve()
+  function report(key: string, patch: ProgressPatch): Promise<void> {
+    const run = chain.then(() => doReport(key, patch))
+    chain = run.catch(() => {})
+    return run
+  }
+
+  async function doReport(key: string, patch: ProgressPatch): Promise<void> {
     const existing = (await get(key)) ?? emptyRecord(key)
     const now = typeof patch.now === "number" ? patch.now : Date.now()
 
