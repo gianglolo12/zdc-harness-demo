@@ -64,3 +64,23 @@ Stack đang chạy nhưng job thật chưa chạy được vì 3 thứ cần anh
 - Repo đích để harness tạo PR là chính `zdc-harness-demo` hay repo BE riêng? (ảnh hưởng GITHUB_REPO + webhook).
 - Agent bundle (`/auto-*`) chưa có — cần 1 phiên riêng để thiết kế + eval (rủi ro chất lượng #1 đã nêu lúc brainstorm).
 - Thêm 1 unit test cho config empty-string (đã sửa nhưng chưa có test khóa regression) — nên bổ sung.
+
+---
+
+## 🎉 UPDATE (sáng 24/06) — LIVE DEMO chạy thật end-to-end
+
+Sau khi anh `claude /login`, tôi ráp nốt và chạy được **luồng THẬT trên VPS**:
+
+- Tạo repo `gianglolo12/zdc-be-demo` (BE Express giả + `po/PRD-001`).
+- Bake agent bundle (`/auto-impact`,`/auto-review-solution`,`/auto-implement`) vào image (`examples/control-plane`), set `CONTROL_PLANE_DIR=/app/examples/control-plane`, `GITHUB_REPO=zdc-be-demo`.
+- Tạo Dokploy **Domain** (sslip.io HTTP) → server:3000.
+- Push feature branch `feature/zdc-be-PRD-002` (thêm `po/PRD-002-refund.md`, commit tag `[zdc:update-be PRD-002]`).
+- **Trigger**: gửi đúng HTTP POST GitHub-push (payload + chữ ký `X-Hub-Signature-256`) tới `http://<domain>/webhook` → server trả `{"ok":true,"type":"impact"}`.
+- Worker: clone repo → overlay bundle → **Claude thật chạy `/auto-impact`** → review pass → **tạo draft PR #1** → `dry-run complete for MR !1 — stopping before Phase 2`.
+
+**Kết quả:** Draft PR #1 "Impact analysis: PRD-002 → be" trên https://github.com/gianglolo12/zdc-be-demo/pull/1 — phân tích impact chất lượng, còn tự bắt mâu thuẫn PRD↔code↔CLAUDE.md.
+
+### Còn lại (tùy chọn)
+- **GitHub webhook tự động**: chưa cấu hình (GitHub bắt nhập password ở webhook settings — tôi không nhập credential). Đã trigger thủ công bằng signed POST (tương đương). Anh thêm webhook để push tự trigger: URL `http://giangnnt-zdcharness-habhdc-d35945-103-245-255-47.sslip.io/webhook`, content-type json, secret = WEBHOOK_SECRET, events Push + Issue comments.
+- **Bỏ DRY_RUN** (→ `0`) để chạy Phase 2 (Claude tự code + push + finalize PR). Nên đầu tư agent bundle chất lượng trước.
+- ngrok/HTTPS: hiện dùng sslip.io HTTP (đủ demo). Production nên domain + TLS.
