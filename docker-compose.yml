@@ -40,6 +40,9 @@ services:
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
       - GITLAB_PROJECT_ID=${GITLAB_PROJECT_ID}
       - CONTROL_PLANE_DIR=/app/examples/control-plane
+      # Control-plane repo (PRDs + role bundles + registry). Cloned per job with
+      # token auth (private). When set, overrides the baked CONTROL_PLANE_DIR.
+      - CONTROL_PLANE_REPO=${CONTROL_PLANE_REPO:-https://github.com/gianglolo12/zdc-control-plane.git}
       - SQLITE_MEMORY_DB=/data/memory.sqlite
       # Container runs as root; claude refuses --dangerously-skip-permissions as
       # root unless IS_SANDBOX=1 (verified in CLI source: getuid()===0 &&
