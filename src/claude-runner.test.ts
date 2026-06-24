@@ -38,10 +38,10 @@ describe("runClaude", () => {
     expect(r.tokensOut).toBeUndefined()
   })
 
-  it("builds args as [-p, command]", async () => {
+  it("builds args as [--dangerously-skip-permissions, -p, command]", async () => {
     const fake = vi.fn().mockResolvedValue({ stdout: "" })
     await runClaude({ cwd: "/a", command: "/my-command", runner: fake })
     const [, args] = fake.mock.calls[0] as [unknown, string[]]
-    expect(args).toEqual(["-p", "/my-command"])
+    expect(args).toEqual(["--dangerously-skip-permissions", "-p", "/my-command"])
   })
 })
