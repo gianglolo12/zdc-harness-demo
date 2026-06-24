@@ -118,7 +118,7 @@ export async function main() {
   const { isPaused } = await import("./kill-switch.js")
   const { bullmqEnqueuer, createQueue } = await import("./queue.js")
   const { loadRegistry } = await import("./registry.js")
-  const { overlay } = await import("./overlay.js")
+  const { overlay, overlayPrdDocs } = await import("./overlay.js")
   const { runClaude } = await import("./claude-runner.js")
   const { reviewSolution } = await import("./pipeline/second-opinion.js")
   const { SqliteMemoryStore } = await import("./memory-store.js")
@@ -151,21 +151,21 @@ export async function main() {
   const connection = new IORedis(cfg.redisUrl, { maxRetriesPerRequest: null })
   const queue = await createQueue("zdc-jobs", bullmqConnection)
   const enqueuer = bullmqEnqueuer(queue)
-  const controlPlaneDir = process.env["CONTROL_PLANE_DIR"] ?? ""
-
-  // Load registry: prefer the control-plane dir, fall back to the image-bundled
-  // registry.yaml, then to an empty registry. This lets the worker boot cleanly
-  // even before the control-plane volume is populated (jobs just have no targets yet).
+  const bakedControlPlaneDir = process.env["CONTROL_PLANE_DIR"] ?? ""
   const { existsSync } = await import("node:fs")
-  const registryCandidates = [`${controlPlaneDir}/registry.yaml`, `${process.cwd()}/registry.yaml`]
-  const registryPath = registryCandidates.find((p) => p && existsSync(p))
-  let registry
-  if (registryPath) {
-    registry = loadRegistry(readFileSync(registryPath, "utf8"))
-    console.log(`[worker] loaded registry from ${registryPath}`)
-  } else {
-    registry = { repos: {} }
-    console.warn(`[worker] no registry.yaml found (looked in: ${registryCandidates.join(", ")}); starting with empty registry`)
+
+  // Load registry from a given control-plane dir: prefer that dir's registry.yaml,
+  // fall back to the image-bundled one, then to an empty registry. This lets the
+  // worker boot (and each job run) cleanly even before the registry is populated.
+  const loadRegistryFromDir = (dir: string) => {
+    const candidates = [`${dir}/registry.yaml`, `${process.cwd()}/registry.yaml`]
+    const path = candidates.find((p) => p && existsSync(p))
+    if (path) {
+      console.log(`[worker] loaded registry from ${path}`)
+      return loadRegistry(readFileSync(path, "utf8"))
+    }
+    console.warn(`[worker] no registry.yaml found (looked in: ${candidates.join(", ")}); starting with empty registry`)
+    return { repos: {} }
   }
 
   const dbPath = process.env["SQLITE_MEMORY_DB"] ?? ":memory:"
@@ -197,6 +197,32 @@ export async function main() {
       await execFileAsync("git", ["-C", dest, "config", "user.email", "bot@zdc-harness.local"])
     }
     return dest
+  }
+
+  // Resolve the control-plane dir for the current job. When CONTROL_PLANE_REPO is
+  // set, clone it (private repo → token-auth URL) into a temp dir registered for
+  // per-job cleanup; otherwise use the baked CONTROL_PLANE_DIR. The PRDs, role
+  // bundles and registry.yaml all live in this dir.
+  const resolveControlPlaneDir = async (): Promise<string> => {
+    if (!cfg.controlPlaneRepo) return bakedControlPlaneDir
+    const dest = mkdtempSync(`${tmpdir()}/zdc-control-plane-`)
+    jobCheckouts.push(dest)
+    const authUrl = cfg.controlPlaneRepo.replace(
+      "https://github.com/",
+      `https://x-access-token:${cfg.github?.token ?? ""}@github.com/`,
+    )
+    await execFileAsync("git", ["clone", "--depth=1", "--branch", "main", authUrl, dest])
+    return dest
+  }
+
+  // Create the derived source branch, advance it with an empty commit, and push so
+  // GitHub will let a draft PR open against it (the auth remote is already set by
+  // checkout()). Source stays clean — no PRD files are committed.
+  const prepareBranch = async (opts: { checkoutDir: string; branch: string }): Promise<void> => {
+    const { checkoutDir: dir, branch } = opts
+    await execFileAsync("git", ["-C", dir, "checkout", "-B", branch])
+    await execFileAsync("git", ["-C", dir, "commit", "--allow-empty", "-m", `chore: open ${branch} [skip ci]`])
+    await execFileAsync("git", ["-C", dir, "push", "-u", "origin", branch])
   }
 
   // Select the correct git client and build provider-agnostic method adapters.
@@ -247,12 +273,18 @@ export async function main() {
     isPaused: () => isPaused(),
     dryRun: cfg.dryRun,
     // Pre-bound closure: captures all Phase1Deps; processJob only passes the intent.
-    runPhase1: (intent) =>
-      runPhase1Full({
+    // Resolves the control-plane dir + reloads the registry at invocation time so
+    // per-job clones (CONTROL_PLANE_REPO) and registry edits are picked up.
+    runPhase1: async (intent) => {
+      const controlPlaneDir = await resolveControlPlaneDir()
+      const registry = loadRegistryFromDir(controlPlaneDir)
+      return runPhase1Full({
         intent,
         registry,
         checkout,
+        prepareBranch,
         overlay,
+        overlayPrdDocs,
         runClaude,
         reviewSolution,
         gitlab: {
@@ -264,14 +296,18 @@ export async function main() {
         state: stateStore,
         projectId,
         controlPlaneDir,
-      }),
+      })
+    },
     // Pre-bound closure: captures all Phase2Deps; processJob only passes the intent.
-    runPhase2: (intent) =>
-      runPhase2Full({
+    runPhase2: async (intent) => {
+      const controlPlaneDir = await resolveControlPlaneDir()
+      const registry = loadRegistryFromDir(controlPlaneDir)
+      return runPhase2Full({
         intent,
         registry,
         checkout,
         overlay,
+        overlayPrdDocs,
         runClaude,
         gitlab: {
           finalizeMR: (pid, mrIid) => git.finalizeMR(mrIid),
@@ -281,7 +317,8 @@ export async function main() {
         enqueuer,
         projectId,
         controlPlaneDir,
-      }),
+      })
+    },
     // Pre-bound closure: captures HumanGateDeps; processJob only passes the intent.
     handleCommand: (intent) =>
       handleCommandFull(intent, {

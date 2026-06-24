@@ -5,6 +5,8 @@ import type { ReviewResult } from "./second-opinion.js"
 import type { MemoryStore, MemoryEntry } from "../memory-store.js"
 import type { GitLabClient } from "../gitlab.js"
 import type { StateStore } from "../state-store.js"
+import { loadManifest } from "../manifest.js"
+import { sourceBranch } from "../source-branch.js"
 
 // ─── Intent shape (impact variant only) ───────────────────────────────────────
 
@@ -32,13 +34,19 @@ type RunClaudeFn = (opts: ClaudeRunnerOpts) => Promise<ClaudeResult>
 type ReviewSolutionFn = (opts: { cwd: string; solution: string; runClaude: RunClaudeFn }) => Promise<ReviewResult>
 type OverlayFn = (opts: OverlayOpts) => Promise<void>
 type CheckoutFn = (opts: CheckoutOpts) => Promise<string>
+type PrepareBranchFn = (opts: { checkoutDir: string; branch: string }) => Promise<void>
+type OverlayPrdDocsFn = (checkoutDir: string, controlPlaneDir: string) => Promise<void>
 
 export interface Phase1Deps {
   intent: ImpactIntent
   registry: Registry
   /** Clones/fetches source repo at the given ref; returns local checkout path */
   checkout: CheckoutFn
+  /** Creates the derived source branch + empty commit + push so a draft PR can open */
+  prepareBranch: PrepareBranchFn
   overlay: OverlayFn
+  /** Overlays the control-plane `po/` PRD tree into the checkout (ephemeral) */
+  overlayPrdDocs: OverlayPrdDocsFn
   runClaude: RunClaudeFn
   reviewSolution: ReviewSolutionFn
   gitlab: Pick<GitLabClient, "createDraftMR" | "commentMR" | "getMR">
@@ -60,7 +68,7 @@ const MAX_ATTEMPTS = 2
  *   gitlab.createDraftMR → { mrIid }
  */
 export async function runPhase1(deps: Phase1Deps): Promise<{ mrIid: number }> {
-  const { intent, registry, checkout, overlay, runClaude, reviewSolution, gitlab, memory, state, projectId, controlPlaneDir } =
+  const { intent, registry, checkout, prepareBranch, overlay, overlayPrdDocs, runClaude, reviewSolution, gitlab, memory, state, projectId, controlPlaneDir } =
     deps
 
   // 1. Resolve registry entry
@@ -69,11 +77,21 @@ export async function runPhase1(deps: Phase1Deps): Promise<{ mrIid: number }> {
     throw new Error(`Registry: no entry for target "${intent.target}"`)
   }
 
-  // 2. Checkout source repo at the given ref
-  const checkoutDir = await checkout({ sourceRepo: entry.sourceRepo, ref: intent.ref })
+  // Derive the source branch (zdc-<role>-<prd>); intent.ref is the control-plane
+  // branch and must NOT be used as the source branch.
+  const srcBranch = sourceBranch(intent.target, intent.prd)
 
-  // 3. Overlay agent bundle into the checkout
+  // Resolve stage command names from the bundle manifest (fallback to defaults).
+  const commands = loadManifest(controlPlaneDir, entry.bundle)
+
+  // 2. Checkout source repo at the derived branch, then create it + empty commit + push
+  //    so GitHub will let a draft PR open against it.
+  const checkoutDir = await checkout({ sourceRepo: entry.sourceRepo, ref: srcBranch })
+  await prepareBranch({ checkoutDir, branch: srcBranch })
+
+  // 3. Overlay agent bundle + PRD docs into the checkout
   await overlay({ checkoutDir, controlPlaneDir, bundle: entry.bundle })
+  await overlayPrdDocs(checkoutDir, controlPlaneDir)
 
   // 4. Load relevant memory entries.
   // Search by the PRD identifier so FTS matches issue/rootCause/fix text that
@@ -91,14 +109,14 @@ export async function runPhase1(deps: Phase1Deps): Promise<{ mrIid: number }> {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const input = buildImpactInput({
       prd: intent.prd,
-      ref: intent.ref,
+      ref: srcBranch,
       memoryContext,
       reviewNotes,
       feedback: intent.feedback,
       apiContract: intent.api_contract,
     })
 
-    const { stdout } = await runClaude({ cwd: checkoutDir, command: "/auto-impact", input })
+    const { stdout } = await runClaude({ cwd: checkoutDir, command: commands.impact, input })
     solution = stdout
 
     // 6. Second-opinion review
@@ -113,13 +131,14 @@ export async function runPhase1(deps: Phase1Deps): Promise<{ mrIid: number }> {
   const mrTitle = `Impact analysis: ${intent.prd} → ${intent.target}`
   const mrBody = buildMRBody({ solution, memoryEntries })
 
-  const mr = (await gitlab.createDraftMR(projectId, intent.ref, mrTitle, mrBody)) as { iid: number }
+  const mr = (await gitlab.createDraftMR(projectId, srcBranch, mrTitle, mrBody)) as { iid: number }
 
   // C1: Persist job state so human-gate can retrieve target/prd/ref on /approve or /revise.
+  // Store the derived source branch so Phase 2 checks out the same branch the PR is on.
   await state.putJob(String(mr.iid), {
     target: intent.target,
     prd: intent.prd,
-    ref: intent.ref,
+    ref: srcBranch,
     phase: "phase1",
     revisionCount: 0,
   })

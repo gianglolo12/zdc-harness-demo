@@ -7,6 +7,7 @@ import type { Phase2Deps } from "./phase2-implement.js"
 function makeDeps(overrides: Partial<Phase2Deps> = {}): Phase2Deps {
   const checkout = vi.fn().mockResolvedValue("/tmp/fake-checkout")
   const overlay = vi.fn().mockResolvedValue(undefined)
+  const overlayPrdDocs = vi.fn(async () => {})
   const finalizeMR = vi.fn().mockResolvedValue(undefined)
   const commentMR = vi.fn().mockResolvedValue(undefined)
   const memoryWrite = vi.fn().mockReturnValue("new-entry-id")
@@ -29,6 +30,7 @@ function makeDeps(overrides: Partial<Phase2Deps> = {}): Phase2Deps {
     },
     checkout,
     overlay,
+    overlayPrdDocs,
     runClaude,
     gitlab: { finalizeMR, commentMR },
     memory: { write: memoryWrite },

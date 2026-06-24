@@ -13,6 +13,9 @@ const baseSchema = z.object({
   GITHUB_TOKEN: z.string().min(1).optional(),
   GITHUB_OWNER: z.string().min(1).optional(),
   GITHUB_REPO: z.string().min(1).optional(),
+  // Control-plane repo URL — when set, the worker clones it per-job at runtime
+  // (PRDs + role bundles + registry.yaml). Empty → fall back to baked CONTROL_PLANE_DIR.
+  CONTROL_PLANE_REPO: z.string().min(1).optional(),
 })
 
 const schema = baseSchema.superRefine((data, ctx) => {
@@ -47,6 +50,8 @@ export interface Config {
   gitlabUrl?: string
   // Present when gitProvider === "github"
   github?: { token: string; owner: string; repo: string }
+  // Optional control-plane repo URL (cloned per-job at runtime when set)
+  controlPlaneRepo?: string
 }
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
@@ -69,5 +74,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   if (p.GIT_PROVIDER === "github") {
     base.github = { token: p.GITHUB_TOKEN!, owner: p.GITHUB_OWNER!, repo: p.GITHUB_REPO! }
   }
+  // CONTROL_PLANE_REPO already coerced "" → undefined by the cleaned-env step above.
+  if (p.CONTROL_PLANE_REPO) base.controlPlaneRepo = p.CONTROL_PLANE_REPO
   return base
 }

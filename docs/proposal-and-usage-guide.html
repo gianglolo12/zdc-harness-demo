@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZDC Harness — Proposal & Hướng dẫn dùng</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#2a3340;
+    --txt:#e6edf3; --mut:#9aa7b4; --accent:#4f9cf9; --accent2:#7ee787;
+    --warn:#f0b429; --bad:#f85149; --po:#d2a8ff; --dev:#79c0ff;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+    --sans:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.6;font-size:15px}
+  .wrap{max-width:980px;margin:0 auto;padding:0 20px 80px}
+  header{padding:48px 0 28px;border-bottom:1px solid var(--line);margin-bottom:32px}
+  h1{font-size:30px;margin:0 0 8px;letter-spacing:-.3px}
+  h2{font-size:21px;margin:44px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:16px;margin:22px 0 8px}
+  .sub{color:var(--mut);font-size:16px;max-width:760px}
+  .badges{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px}
+  .badge{font-size:12.5px;padding:4px 11px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--mut)}
+  .badge.ok{color:var(--accent2);border-color:#2ea04340}
+  .badge.ac{color:var(--accent);border-color:#388bfd40}
+  p{margin:10px 0}
+  code{font-family:var(--mono);background:var(--panel2);padding:1.5px 6px;border-radius:5px;font-size:13px;color:#ffd9a0}
+  .lead{color:var(--mut)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .card h3{margin-top:0}
+  .pill{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:6px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px}
+  .p1{background:#388bfd22;color:var(--dev)}
+  .gate{background:#d2a8ff22;color:var(--po)}
+  .p2{background:#2ea04322;color:var(--accent2)}
+  /* steps */
+  .step{display:flex;gap:16px;padding:18px 0;border-bottom:1px solid var(--line)}
+  .step:last-child{border-bottom:0}
+  .num{flex:0 0 38px;height:38px;width:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;border:1px solid var(--line);background:var(--panel2)}
+  .num.b1{color:var(--dev);border-color:#388bfd55}
+  .num.bg{color:var(--po);border-color:#d2a8ff55}
+  .num.b2{color:var(--accent2);border-color:#2ea04355}
+  .step .body{flex:1;min-width:0}
+  .step .ttl{font-weight:600;font-size:15.5px}
+  .who{font-size:12px;color:var(--mut);margin-left:8px;font-weight:500}
+  .sys{color:var(--mut);margin:4px 0 8px}
+  .do{background:var(--panel2);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:8px 12px;margin-top:8px}
+  .do b{color:var(--accent)}
+  pre{background:#0a0e14;border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;margin:8px 0;color:#cdd9e5}
+  pre .c{color:#6b7785}
+  pre .k{color:#ff9492}
+  pre .s{color:#a5d6ff}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--mut);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.4px}
+  td code{white-space:nowrap}
+  .note{background:#f0b42912;border:1px solid #f0b42933;border-radius:10px;padding:14px 16px;margin:16px 0}
+  .note b{color:var(--warn)}
+  .ok-note{background:#2ea04312;border:1px solid #2ea04333;border-radius:10px;padding:14px 16px;margin:16px 0}
+  .ok-note b{color:var(--accent2)}
+  ul{margin:8px 0;padding-left:22px}
+  li{margin:4px 0}
+  .flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0;font-size:13px}
+  .flow .n{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:6px 10px}
+  .flow .ar{color:var(--mut)}
+  footer{margin-top:48px;padding-top:20px;border-top:1px solid var(--line);color:var(--mut);font-size:13px}
+  a{color:var(--accent)}
+  .kv{font-size:13.5px}
+  .kv b{color:var(--txt)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>ZDC Harness — Đề xuất & Hướng dẫn vận hành</h1>
+  <p class="sub">Hệ thống tự động hoá vòng đời "PRD → phân tích tác động → duyệt → code → PR" cho backend (và mở rộng cho frontend). Server host Claude Code, lắng nghe git webhook, chạy 2 pha có cổng duyệt của con người.</p>
+  <div class="badges">
+    <span class="badge ac">Provider: GitHub</span>
+    <span class="badge">Deploy: Dokploy VPS</span>
+    <span class="badge">Auth: Claude subscription</span>
+    <span class="badge ok">✓ Đã chạy thật end-to-end (PR&nbsp;#4)</span>
+  </div>
+</header>
+
+<!-- 1 -->
+<h2>1. Vấn đề & Giải pháp</h2>
+<div class="grid2">
+  <div class="card">
+    <h3>Vấn đề</h3>
+    <p class="lead">Mỗi khi PO cập nhật PRD, dev phải tự đọc, đánh giá tác động lên code, rồi code tay. Tốn thời gian, dễ sót, không đồng nhất giữa các dev.</p>
+  </div>
+  <div class="card">
+    <h3>Giải pháp</h3>
+    <p class="lead">Một <b>harness</b> đứng giữa Git và Claude Code: PRD đổi → tự phân tích tác động và mở PR nháp → dev chỉ <b>duyệt</b> → harness tự code + test + đẩy PR hoàn chỉnh. Dev giữ quyền quyết định ở "cổng người".</p>
+  </div>
+</div>
+
+<h3>Kiến trúc gọn</h3>
+<div class="flow">
+  <span class="n">Git webhook</span><span class="ar">→</span>
+  <span class="n">server (Fastify)</span><span class="ar">→</span>
+  <span class="n">Redis queue</span><span class="ar">→</span>
+  <span class="n">worker</span><span class="ar">→</span>
+  <span class="n">claude -p (trong checkout)</span><span class="ar">→</span>
+  <span class="n">PR trên GitHub</span>
+</div>
+<table>
+  <tr><th>Thành phần</th><th>Vai trò</th></tr>
+  <tr><td><b>server</b></td><td>Nhận <code>POST /webhook</code>, xác thực HMAC, phân loại sự kiện, đẩy job vào queue.</td></tr>
+  <tr><td><b>worker</b></td><td>Lấy job, clone repo, chạy <code>claude -p</code> các lệnh <code>/auto-*</code>, tạo/un-draft PR.</td></tr>
+  <tr><td><b>redis</b></td><td>Hàng đợi job (BullMQ) + lưu trạng thái MR (<code>job:&lt;mrIid&gt;</code>).</td></tr>
+  <tr><td><b>agent bundle</b></td><td>Thư mục <code>examples/control-plane/</code>: <code>registry.yaml</code> (map target→repo) + các lệnh <code>.claude/commands/auto-*.md</code>. Bake trong image, overlay lên checkout lúc chạy.</td></tr>
+  <tr><td><b>memory</b></td><td>SQLite FTS5 lưu bài học/issue đã gặp, nạp lại cho các lần phân tích sau.</td></tr>
+</table>
+
+<!-- 2 -->
+<h2>2. Chuẩn bị (làm 1 lần)</h2>
+<table>
+  <tr><th>#</th><th>Việc</th><th>Chi tiết</th></tr>
+  <tr><td>1</td><td>Agent bundle</td><td>Đặt <code>registry.yaml</code> + <code>.claude/commands/auto-{impact,review-solution,implement}.md</code> trong <code>examples/control-plane/</code>. Team tự chỉnh prompt cho đúng nghiệp vụ.</td></tr>
+  <tr><td>2</td><td>Biến môi trường (Dokploy → Environment)</td><td><code>GIT_PROVIDER=github</code>, <code>GITHUB_OWNER</code>, <code>GITHUB_REPO</code>, <code>GITHUB_TOKEN</code> (scope <code>repo</code>), <code>WEBHOOK_SECRET</code>, <code>DRY_RUN=0</code>, <code>IS_SANDBOX=1</code>.</td></tr>
+  <tr><td>3</td><td>Đăng nhập Claude</td><td>Trong container worker (Open Terminal): chạy <code>claude</code> → <code>/login</code> (gói subscription). Credential lưu ở volume, không cần API key.</td></tr>
+  <tr><td>4</td><td>Webhook GitHub</td><td>Trên repo đích → Settings → Webhooks: URL <code>http://&lt;domain&gt;/webhook</code>, content-type <code>application/json</code>, secret = <code>WEBHOOK_SECRET</code>, events <code>push</code> + <code>issue_comment</code>.</td></tr>
+</table>
+<div class="note"><b>Lưu ý:</b> <code>IS_SANDBOX=1</code> bắt buộc — container chạy bằng root, Claude từ chối <code>--dangerously-skip-permissions</code> dưới root trừ khi biến này được đặt. Thiếu nó, cả 2 pha sẽ "im lặng không làm gì".</div>
+
+<!-- 3 -->
+<h2>3. Các step khi chạy + hướng dẫn dùng</h2>
+
+<div class="card" style="margin-bottom:18px">
+  <span class="pill p1">Pha 1 — Phân tích tác động → PR nháp</span>
+  <p class="lead" style="margin:6px 0 0">Tự động hoàn toàn. Đầu ra: 1 Pull Request <b>nháp</b> chứa bản phân tích tác động.</p>
+</div>
+
+<div class="step">
+  <div class="num b1">1</div>
+  <div class="body">
+    <div class="ttl">Trigger — push PRD <span class="who">· PO</span></div>
+    <div class="sys">Hệ thống: GitHub bắn webhook <code>push</code> tới server.</div>
+    <div class="do"><b>Bạn làm:</b> trên một <b>feature branch</b> (không phải main), commit thay đổi file dưới <code>po/**</code>, với commit message chứa tag.
+      <pre><span class="c"># nhánh ví dụ: feature/zdc-be-PRD-005</span>
+git commit -m "<span class="s">docs(po): add PRD-005 list orders [zdc:update-be PRD-005]</span>"
+git push origin feature/zdc-be-PRD-005</pre>
+      Cú pháp tag: <code>[zdc:update-&lt;be|fe|qa&gt; &lt;PRD-ID&gt;]</code>.
+    </div>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num b1">2</div>
+  <div class="body">
+    <div class="ttl">Xác thực + phân loại <span class="who">· server (tự động)</span></div>
+    <div class="sys">Kiểm HMAC <code>X-Hub-Signature-256</code>. Nếu branch hợp lệ + có tag + có file <code>po/</code> → phân loại <code>impact</code>; ngược lại bỏ qua (200).</div>
+    <div class="do"><b>Bạn làm:</b> không cần gì. Sai chữ ký → 401; thiếu tag → server trả <code>{"type":"ignore"}</code>.</div>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num b1">3-5</div>
+  <div class="body">
+    <div class="ttl">Enqueue → worker clone + overlay <span class="who">· hệ thống</span></div>
+    <div class="sys">Job vào Redis. Worker clone repo (<code>--depth=1 --branch &lt;ref&gt;</code>) vào <code>/tmp/zdc-checkout-*</code> trên VPS, dán agent bundle lên trên, gắn token để push được ở Pha 2.</div>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num b1">6-7</div>
+  <div class="body">
+    <div class="ttl">/auto-impact + second-opinion <span class="who">· Claude (tự động)</span></div>
+    <div class="sys">Nạp memory → <code>claude -p /auto-impact</code> đọc PRD + codebase → bản phân tích tác động. Sau đó <code>/auto-review-solution</code> chấm điểm; fail thì làm lại (≤2 vòng).</div>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num b1">8</div>
+  <div class="body">
+    <div class="ttl">Tạo PR nháp + lưu trạng thái <span class="who">· hệ thống</span></div>
+    <div class="sys">Mở Pull Request <b>nháp</b> (draft) chứa phân tích; lưu state vào Redis. Dừng, chờ người duyệt.</div>
+    <div class="do"><b>Bạn làm:</b> mở PR nháp vừa hiện trên GitHub, đọc phần "Impact analysis".</div>
+  </div>
+</div>
+
+<div class="card" style="margin:24px 0 18px">
+  <span class="pill gate">Cổng người — duyệt</span>
+  <p class="lead" style="margin:6px 0 0">Điểm con người ra quyết định. Tương tác bằng <b>comment</b> trên PR.</p>
+</div>
+
+<div class="step">
+  <div class="num bg">9</div>
+  <div class="body">
+    <div class="ttl">Đọc & quyết định <span class="who">· BE Dev</span></div>
+    <div class="do"><b>Bạn làm:</b> comment lên PR một trong các lệnh:
+      <table style="margin-top:8px">
+        <tr><th>Lệnh</th><th>Ý nghĩa</th></tr>
+        <tr><td><code>/approve</code></td><td>Đồng ý phân tích → mở Pha 2 (code thật).</td></tr>
+        <tr><td><code>/revise &lt;góp ý&gt;</code></td><td>Yêu cầu phân tích lại kèm góp ý. Tối đa 3 lần, sau đó gắn nhãn <code>needs-human</code>.</td></tr>
+        <tr><td><code>/reject</code></td><td>Từ chối — dừng, không code.</td></tr>
+        <tr><td><code>/abort</code></td><td>Huỷ job hiện tại.</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num bg">10</div>
+  <div class="body">
+    <div class="ttl">Định tuyến lệnh <span class="who">· hệ thống</span></div>
+    <div class="sys">Webhook <code>issue_comment</code> → server phân loại → worker xử lý: <code>/approve</code> đẩy job <code>phase2</code>; <code>/revise</code> tăng đếm & phân tích lại; <code>/reject|/abort</code> dừng.</div>
+  </div>
+</div>
+
+<div class="card" style="margin:24px 0 18px">
+  <span class="pill p2">Pha 2 — Code + Test → hoàn thiện PR</span>
+  <p class="lead" style="margin:6px 0 0">Chỉ chạy sau <code>/approve</code>. Đầu ra: PR có commit code + test, chuyển từ nháp sang sẵn-sàng-review.</p>
+</div>
+
+<div class="step">
+  <div class="num b2">11-12</div>
+  <div class="body">
+    <div class="ttl">/auto-implement <span class="who">· Claude (tự động)</span></div>
+    <div class="sys">Worker checkout lại branch của PR → <code>claude -p /auto-implement</code>: sửa source thật, viết test, chạy test, <code>git commit</code> + <code>git push origin HEAD</code> lên đúng branch PR.</div>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num b2">13-14</div>
+  <div class="body">
+    <div class="ttl">Un-draft + ghi memory <span class="who">· hệ thống</span></div>
+    <div class="sys">Gọi GraphQL <code>markPullRequestReadyForReview</code> (PR hết nháp). Ghi bài học vào memory. Nếu ảnh hưởng FE → tự mở job impact cho repo FE kèm api_contract. Dọn checkout <code>/tmp</code>.</div>
+    <div class="do"><b>Bạn làm:</b> review PR (giờ đã có code + test) như review của một dev bình thường → merge.</div>
+  </div>
+</div>
+
+<!-- 4 -->
+<h2>4. Cheat sheet</h2>
+<div class="grid2">
+  <div class="card">
+    <h3>Tag trong commit (trigger Pha 1)</h3>
+    <pre>[zdc:update-be PRD-005]   <span class="c"># backend</span>
+[zdc:update-fe PRD-005]   <span class="c"># frontend</span>
+[zdc:update-qa PRD-005]   <span class="c"># qa</span></pre>
+    <p class="kv">Điều kiện: nhánh ≠ <code>main/master/develop</code> · commit có tag · có đổi file <code>po/**</code>.</p>
+  </div>
+  <div class="card">
+    <h3>Comment trên PR (cổng người)</h3>
+    <pre>/approve
+/revise cần thêm xử lý lỗi 409
+/reject
+/abort</pre>
+    <p class="kv">Lệnh phải đứng đầu comment. <code>/revise</code> tối đa 3 lần.</p>
+  </div>
+</div>
+
+<!-- 5 -->
+<h2>5. Bằng chứng đã chạy thật</h2>
+<div class="ok-note">
+  <b>PR #4 — "Impact analysis: PRD-005 → be"</b> chạy tự động trọn vẹn qua webhook thật:
+  <ul>
+    <li>Push <code>po/PRD-005</code> + tag → server phân loại <code>impact</code> → worker tạo <b>PR nháp #4</b>.</li>
+    <li>Comment <code>/approve</code> → Pha 2 → Claude sửa <code>src/index.js (+12/-2)</code>, viết <code>list-orders.test.js (+35)</code>, commit <code>feat(orders): add GET /orders [PRD-005]</code>, push.</li>
+    <li><code>finalizeMR</code> → PR #4 <b>draft = false</b>. Tổng 3 commit, 4 file. Không can thiệp tay.</li>
+  </ul>
+</div>
+
+<!-- 6 -->
+<h2>6. Vận hành & an toàn</h2>
+<table>
+  <tr><th>Cơ chế</th><th>Mô tả</th></tr>
+  <tr><td><code>DRY_RUN=1</code></td><td>Chạy thử: phân tích nhưng không tạo PR / không push. Đặt <code>0</code> để chạy thật.</td></tr>
+  <tr><td><code>HARNESS_PAUSED=1</code></td><td>Kill-switch: worker bỏ qua mọi job mới (tạm dừng hệ thống).</td></tr>
+  <tr><td>Checkout tạm</td><td>Clone nằm trên VPS tại <code>/tmp/zdc-checkout-*</code>, <b>tự xoá sau mỗi job</b> (gồm sau approve). Code thật luôn ở GitHub.</td></tr>
+  <tr><td>Memory</td><td>Bài học/issue lưu ở <code>/data/memory.sqlite</code> (volume) — nạp lại cho lần phân tích sau.</td></tr>
+  <tr><td>Số vòng revise</td><td>Tối đa 3; quá thì gắn nhãn <code>needs-human</code> để người vào tay.</td></tr>
+</table>
+
+<h2>7. Câu hỏi mở</h2>
+<ul>
+  <li>Webhook đang dùng HTTP (domain sslip.io) — production nên gắn domain + TLS.</li>
+  <li>Worker concurrency = 1 (xử lý tuần tự). Khi tải tăng cần xem lại scaling + cô lập checkout song song.</li>
+  <li>Phần FE handoff (auto mở job cho repo FE) đã có khung nhưng chưa demo end-to-end.</li>
+</ul>
+
+<footer>
+  ZDC Harness · tài liệu nội bộ · provider GitHub · cập nhật 2026-06-24 · tham chiếu <code>docs/runtime-flow.md</code> &amp; <code>docs/runtime-flow.puml</code>.
+</footer>
+
+</div>
+</body>
+</html>

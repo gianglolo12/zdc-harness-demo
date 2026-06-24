@@ -49,3 +49,33 @@ export async function overlay(opts: OverlayOpts): Promise<void> {
     // No .git directory — skip gitignore step gracefully
   }
 }
+
+/**
+ * Overlay the control-plane's `po/` PRD tree (ephemeral, not committed) into the
+ * checkout so the agent can read the target PRD plus any cross-referenced PRDs.
+ * Mirrors overlay()'s gitignore approach: copy recursively, then exclude `po/`.
+ * Skips silently if `po/` (source) or `.git` (dest) is absent.
+ */
+export async function overlayPrdDocs(checkoutDir: string, controlPlaneDir: string): Promise<void> {
+  const poSrc = join(controlPlaneDir, "po")
+  try {
+    await access(poSrc)
+  } catch {
+    // No po/ in control-plane — nothing to overlay.
+    return
+  }
+
+  // Copy whole po/ tree into the checkout (force overwrite).
+  await cp(poSrc, join(checkoutDir, "po"), { recursive: true, force: true })
+
+  // Keep the source repo clean: exclude po/ so the agent never commits PRDs.
+  try {
+    const gitDir = join(checkoutDir, ".git")
+    await access(gitDir)
+    const excludeDir = join(gitDir, "info")
+    await mkdir(excludeDir, { recursive: true })
+    await appendFile(join(excludeDir, "exclude"), "\npo/\n")
+  } catch {
+    // No .git directory — skip gitignore step gracefully.
+  }
+}

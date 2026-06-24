@@ -6,11 +6,13 @@ import type { MemoryStore } from "../memory-store.js"
 import type { Enqueuer } from "../queue.js"
 import type { Phase2JobIntent } from "./human-gate.js"
 import type { ImpactJobIntent } from "../classifier.js"
+import { loadManifest } from "../manifest.js"
 
 // ─── Injected dependency types ────────────────────────────────────────────────
 
 type RunClaudeFn = (opts: ClaudeRunnerOpts) => Promise<ClaudeResult>
 type OverlayFn = (opts: OverlayOpts) => Promise<void>
+type OverlayPrdDocsFn = (checkoutDir: string, controlPlaneDir: string) => Promise<void>
 type CheckoutFn = (opts: { sourceRepo: string; ref: string; destDir?: string }) => Promise<string>
 
 /** Shape of the JSON footer emitted by the /auto-implement agent on stdout. */
@@ -26,6 +28,8 @@ export interface Phase2Deps {
   registry: Registry
   checkout: CheckoutFn
   overlay: OverlayFn
+  /** Overlays the control-plane `po/` PRD tree so /auto-implement can read it */
+  overlayPrdDocs: OverlayPrdDocsFn
   runClaude: RunClaudeFn
   gitlab: {
     finalizeMR(projectId: number, mrIid: number): Promise<unknown>
@@ -48,7 +52,7 @@ export interface Phase2Deps {
  *   if affects_fe && target=be → enqueue impact job for fe with api_contract handoff
  */
 export async function runPhase2(deps: Phase2Deps): Promise<void> {
-  const { intent, registry, checkout, overlay, runClaude, gitlab, memory, enqueuer, projectId, controlPlaneDir } = deps
+  const { intent, registry, checkout, overlay, overlayPrdDocs, runClaude, gitlab, memory, enqueuer, projectId, controlPlaneDir } = deps
 
   // 1. Resolve registry entry
   const entry = registry.repos[intent.target]
@@ -56,15 +60,17 @@ export async function runPhase2(deps: Phase2Deps): Promise<void> {
     throw new Error(`Registry: no entry for target "${intent.target}"`)
   }
 
-  // 2. Checkout source repo at the given ref
+  // 2. Checkout source repo at the stored ref (= the derived source branch the PR is on)
   const checkoutDir = await checkout({ sourceRepo: entry.sourceRepo, ref: intent.ref })
 
-  // 3. Overlay agent bundle into the checkout
+  // 3. Overlay agent bundle + PRD docs into the checkout
   await overlay({ checkoutDir, controlPlaneDir, bundle: entry.bundle })
+  await overlayPrdDocs(checkoutDir, controlPlaneDir)
 
-  // 4. Run /auto-implement (agent handles coding, tests, and pushing itself)
+  // 4. Run the implement command (from the bundle manifest; agent codes+tests+pushes)
+  const commands = loadManifest(controlPlaneDir, entry.bundle)
   const input = buildImplementInput({ prd: intent.prd, ref: intent.ref, mrIid: intent.mrIid })
-  const { stdout } = await runClaude({ cwd: checkoutDir, command: "/auto-implement", input })
+  const { stdout } = await runClaude({ cwd: checkoutDir, command: commands.implement, input })
 
   // 5. Parse JSON footer from agent stdout (best-effort)
   const footer = parseAgentFooter(stdout)

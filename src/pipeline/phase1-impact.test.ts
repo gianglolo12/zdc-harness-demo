@@ -19,7 +19,9 @@ function makeDeps(overrides: Partial<Phase1Deps> = {}): Phase1Deps {
     intent: { type: "impact", target: "be", prd: "PRD-42", ref: "feature/x" },
     registry: { repos: { be: fakeEntry } },
     checkout: vi.fn().mockResolvedValue("/tmp/checkout-be"),
+    prepareBranch: vi.fn(async () => {}),
     overlay: vi.fn().mockResolvedValue(undefined),
+    overlayPrdDocs: vi.fn(async () => {}),
     runClaude: vi.fn().mockResolvedValue({ stdout: "## Solution\nDo the thing." }),
     reviewSolution: vi.fn().mockResolvedValue({ verdict: "pass", notes: "" }),
     gitlab: {
@@ -127,7 +129,7 @@ describe("runPhase1", () => {
     const deps = makeDeps()
     await runPhase1(deps)
     expect(deps.checkout).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceRepo: fakeEntry.sourceRepo, ref: "feature/x" }),
+      expect.objectContaining({ sourceRepo: fakeEntry.sourceRepo, ref: "zdc-be-prd-42" }),
     )
   })
 
@@ -141,7 +143,7 @@ describe("runPhase1", () => {
     expect(state.putJob).toHaveBeenCalledWith("99", {
       target: "be",
       prd: "PRD-42",
-      ref: "feature/x",
+      ref: "zdc-be-prd-42",
       phase: "phase1",
       revisionCount: 0,
     })

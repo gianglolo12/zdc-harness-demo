@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { overlay } from "./overlay.js"
+import { overlay, overlayPrdDocs } from "./overlay.js"
 
 describe("overlay", () => {
   it("bundle đè shared", async () => {
@@ -45,5 +45,29 @@ describe("overlay", () => {
     const exclude = await readFile(join(co, ".git", "info", "exclude"), "utf8")
     expect(exclude).toContain(".claude/")
     expect(exclude).toContain("CLAUDE.md")
+  })
+})
+
+describe("overlayPrdDocs", () => {
+  it("copies po/ tree into checkout and excludes it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "po-"))
+    const cp = join(root, "cp"), co = join(root, "co")
+    await mkdir(join(cp, "po", "nested"), { recursive: true })
+    await mkdir(join(co, ".git", "info"), { recursive: true })
+    await writeFile(join(cp, "po", "PRD-006.md"), "PRD")
+    await writeFile(join(cp, "po", "nested", "deep.md"), "DEEP")
+    await overlayPrdDocs(co, cp)
+    expect(await readFile(join(co, "po", "PRD-006.md"), "utf8")).toBe("PRD")
+    expect(await readFile(join(co, "po", "nested", "deep.md"), "utf8")).toBe("DEEP")
+    const exclude = await readFile(join(co, ".git", "info", "exclude"), "utf8")
+    expect(exclude).toContain("po/")
+  })
+
+  it("skips gracefully when po/ absent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "po-"))
+    const cp = join(root, "cp"), co = join(root, "co")
+    await mkdir(cp, { recursive: true })
+    await mkdir(co, { recursive: true })
+    await expect(overlayPrdDocs(co, cp)).resolves.toBeUndefined()
   })
 })

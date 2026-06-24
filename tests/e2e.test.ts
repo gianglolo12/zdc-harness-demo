@@ -139,7 +139,9 @@ function makePreBoundPhase1(
       intent,
       registry: FAKE_REGISTRY,
       checkout,
+      prepareBranch: vi.fn(async () => {}),
       overlay,
+      overlayPrdDocs: vi.fn(async () => {}),
       runClaude,
       reviewSolution,
       gitlab: {
@@ -175,6 +177,7 @@ function makePreBoundPhase2(
       registry: FAKE_REGISTRY,
       checkout,
       overlay,
+      overlayPrdDocs: vi.fn(async () => {}),
       runClaude,
       gitlab: {
         finalizeMR: gitlab.finalizeMR,
