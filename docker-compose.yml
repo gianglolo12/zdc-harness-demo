@@ -39,7 +39,7 @@ services:
       - GITLAB_URL=${GITLAB_URL}
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
       - GITLAB_PROJECT_ID=${GITLAB_PROJECT_ID}
-      - CONTROL_PLANE_DIR=/control-plane
+      - CONTROL_PLANE_DIR=/app/examples/control-plane
       - SQLITE_MEMORY_DB=/data/memory.sqlite
       - DRY_RUN=${DRY_RUN:-1}
       - HARNESS_PAUSED=${HARNESS_PAUSED:-0}
