@@ -25,6 +25,13 @@
 
 > **Lưu ý webhook 2 repo**: `push` (trigger Phase 1) đến từ **control-plane**; `issue_comment` (`/approve`...) đến từ **source repo** (PR nằm đó). → cần hook trên CẢ HAI repo, cùng trỏ 1 endpoint + cùng secret.
 
+## ✅ A1 — KẾT QUẢ (verified 2026-06-24)
+Chạy thật end-to-end: sửa PRD `G3-F09` trên branch `prd/G3-F09-demo` của **zdc-control-plane** → webhook → server classify `impact` → worker clone control-plane (private, token) + clone zdc-be-demo → tạo nhánh dẫn xuất `zdc-be-g3-f09` + empty commit → overlay po/ + bundle be → `/auto-impact` → **draft PR #5 trên zdc-be-demo**.
+- **#1 proven**: PR#5 Summary mở đầu `Analyst: backend-bundle` ⇒ lệnh override trong `be/commands/auto-impact.md` được dùng (không phải shared).
+- **#2 proven**: command name lấy từ `be/manifest.json` (manifest-driven).
+- **cross-ref proven**: phân tích đã follow `refs:` → consult G3-F07, G3-F08, G4-F11, `_glossary`, `ID-CONVENTION`, `order-state.puml`.
+- 156 test pass, tsc clean. Repo control-plane: github.com/gianglolo12/zdc-control-plane (private).
+
 ## Phase A2 — Đa role (chứng minh #1/#2 đầy đủ)
 - [ ] Tạo `zdc-fe-demo` source repo + registry `fe → zdc-fe-demo`.
 - [ ] `fe/` bundle với command riêng (khác `be/`) → chứng minh role khác → agents khác.
