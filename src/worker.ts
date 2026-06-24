@@ -126,9 +126,15 @@ export async function main() {
   const { readFileSync } = await import("node:fs")
   const { execFile } = await import("node:child_process")
   const { promisify } = await import("node:util")
-  const { mkdtempSync } = await import("node:fs")
+  const { mkdtempSync, rmSync } = await import("node:fs")
   const { tmpdir } = await import("node:os")
   const execFileAsync = promisify(execFile)
+
+  // Track every temp checkout created during a single job so we can delete them
+  // when the job finishes (worker concurrency is 1, so this stays per-job). The
+  // checkout lives only to run claude against; once the job (Phase 1 analysis or
+  // Phase 2 implement+push) completes, the work is on GitHub and the dir is dead.
+  const jobCheckouts: string[] = []
 
   const cfg = loadConfig(process.env as Record<string, string | undefined>)
   // Parse redisUrl into plain options so BullMQ uses its own bundled ioredis —
@@ -171,6 +177,7 @@ export async function main() {
   // a default clone without --branch so the FE handoff job can succeed on main.
   const checkout = async (opts: { sourceRepo: string; ref: string }): Promise<string> => {
     const dest = mkdtempSync(`${tmpdir()}/zdc-checkout-`)
+    jobCheckouts.push(dest)
     try {
       await execFileAsync("git", ["clone", "--depth=1", "--branch", opts.ref, opts.sourceRepo, dest])
     } catch {
@@ -295,7 +302,16 @@ export async function main() {
   const worker = new Worker(
     "zdc-jobs",
     async (job) => {
-      await processJob(job.data as JobIntent, deps)
+      try {
+        await processJob(job.data as JobIntent, deps)
+      } finally {
+        // Clear temp checkouts created by this job (e.g. after an approved MR's
+        // Phase 2 implement+push finishes). force:true ignores already-gone dirs.
+        while (jobCheckouts.length > 0) {
+          const dir = jobCheckouts.pop()!
+          rmSync(dir, { recursive: true, force: true })
+        }
+      }
     },
     { connection: bullmqConnection },
   )
