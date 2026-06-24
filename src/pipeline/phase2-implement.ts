@@ -14,6 +14,8 @@ type RunClaudeFn = (opts: ClaudeRunnerOpts) => Promise<ClaudeResult>
 type OverlayFn = (opts: OverlayOpts) => Promise<void>
 type OverlayPrdDocsFn = (checkoutDir: string, controlPlaneDir: string) => Promise<void>
 type CheckoutFn = (opts: { sourceRepo: string; ref: string; destDir?: string }) => Promise<string>
+/** Optional progress milestone callback. No-op when omitted. */
+type ReportStepFn = (step: string, status: "running" | "done" | "failed") => void
 
 /** Shape of the JSON footer emitted by the /auto-implement agent on stdout. */
 interface AgentFooter {
@@ -39,6 +41,8 @@ export interface Phase2Deps {
   enqueuer: Enqueuer
   projectId: number
   controlPlaneDir: string
+  /** Optional: report a pipeline milestone (checkout/auto-implement/finalize). */
+  reportStep?: ReportStepFn
 }
 
 // ─── Pipeline ─────────────────────────────────────────────────────────────────
@@ -53,6 +57,7 @@ export interface Phase2Deps {
  */
 export async function runPhase2(deps: Phase2Deps): Promise<void> {
   const { intent, registry, checkout, overlay, overlayPrdDocs, runClaude, gitlab, memory, enqueuer, projectId, controlPlaneDir } = deps
+  const reportStep: ReportStepFn = deps.reportStep ?? (() => {})
 
   // 1. Resolve registry entry
   const entry = registry.repos[intent.target]
@@ -61,21 +66,26 @@ export async function runPhase2(deps: Phase2Deps): Promise<void> {
   }
 
   // 2. Checkout source repo at the stored ref (= the derived source branch the PR is on)
+  reportStep("checkout", "running")
   const checkoutDir = await checkout({ sourceRepo: entry.sourceRepo, ref: intent.ref })
 
   // 3. Overlay agent bundle + PRD docs into the checkout
   await overlay({ checkoutDir, controlPlaneDir, bundle: entry.bundle })
   await overlayPrdDocs(checkoutDir, controlPlaneDir)
+  reportStep("checkout", "done")
 
   // 4. Run the implement command (from the bundle manifest; agent codes+tests+pushes)
+  reportStep("auto-implement", "running")
   const commands = loadManifest(controlPlaneDir, entry.bundle)
   const input = buildImplementInput({ prd: intent.prd, ref: intent.ref, mrIid: intent.mrIid })
   const { stdout } = await runClaude({ cwd: checkoutDir, command: commands.implement, input })
+  reportStep("auto-implement", "done")
 
   // 5. Parse JSON footer from agent stdout (best-effort)
   const footer = parseAgentFooter(stdout)
 
   // 6. Finalize MR (un-draft)
+  reportStep("finalize", "running")
   await gitlab.finalizeMR(projectId, intent.mrIid)
 
   // 7. Write lesson to memory
@@ -109,6 +119,8 @@ export async function runPhase2(deps: Phase2Deps): Promise<void> {
       await enqueuer.enqueue(feJob)
     }
   }
+
+  reportStep("finalize", "done")
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

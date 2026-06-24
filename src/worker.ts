@@ -2,6 +2,7 @@ import type { JobIntent, ImpactJobIntent } from "./classifier.js"
 import type { Enqueuer } from "./queue.js"
 import type { Phase2JobIntent } from "./pipeline/human-gate.js"
 import type { Config } from "./config.js"
+import type { ProgressPatch } from "./progress.js"
 import { GitLabClient, fromConfig as gitlabFromConfig } from "./gitlab.js"
 import { GitHubClient, fromConfig as githubFromConfig } from "./github.js"
 import type { RepoRef } from "./github.js"
@@ -60,6 +61,20 @@ export interface WorkerDeps {
   handleMerged: (mrIid: number) => Promise<void>
   enqueuer: Enqueuer
   projectId: number
+  /**
+   * Optional progress reporter (best-effort). When present, processJob reports
+   * phase start / done / failed keyed by jobKey = `<target>-<prd>`. The per-step
+   * and per-activity reporting is wired into the runPhase1/runPhase2 closures in
+   * main() (which bind reportStep + onActivity against the same jobKey). Absent
+   * in unit tests → no-op.
+   */
+  reportProgress?: (key: string, patch: ProgressPatch) => Promise<void>
+}
+
+/** jobKey = `<target>-<prd>`, stable across phase1 → phase2 for a given job. */
+export function jobKeyOf(intent: { target?: string; prd?: string }): string | undefined {
+  if (!intent.target || !intent.prd) return undefined
+  return `${intent.target}-${intent.prd}`
 }
 
 // ─── Core processor (unit-testable, no live deps) ─────────────────────────────
@@ -79,8 +94,27 @@ export async function processJob(intent: JobIntent, deps: WorkerDeps): Promise<v
     return
   }
 
+  // Best-effort progress helper: never let a reporting failure abort a job.
+  const report = async (key: string | undefined, patch: ProgressPatch): Promise<void> => {
+    if (!deps.reportProgress || !key) return
+    try {
+      await deps.reportProgress(key, patch)
+    } catch (err) {
+      console.warn("[worker] progress report failed (non-fatal):", err)
+    }
+  }
+
   if (intent.type === "phase2") {
-    await deps.runPhase2(intent as Phase2JobIntent)
+    const p2 = intent as Phase2JobIntent
+    const key = jobKeyOf(p2)
+    await report(key, { target: p2.target, prd: p2.prd, phase: "phase2", status: "running", mrIid: p2.mrIid })
+    try {
+      await deps.runPhase2(p2)
+      await report(key, { phase: "phase2", status: "done" })
+    } catch (err) {
+      await report(key, { phase: "phase2", status: "failed", activity: `phase2 failed: ${String(err)}` })
+      throw err
+    }
     console.log(`[worker] Phase 2 complete for MR !${intent.mrIid}`)
     return
   }
@@ -102,6 +136,13 @@ export async function processJob(intent: JobIntent, deps: WorkerDeps): Promise<v
 
   // Narrowed by the intent.type !== "impact" guard above — no cast needed.
   const impactIntent = intent as ImpactJobIntent
+  const impactKey = jobKeyOf(impactIntent)
+  await report(impactKey, {
+    target: impactIntent.target,
+    prd: impactIntent.prd,
+    phase: "phase1",
+    status: "running",
+  })
 
   // PO dispatch (GitHub Issue): ACK on the control-plane Issue before analysis.
   // A comment failure must never abort the job — log and continue.
@@ -116,7 +157,14 @@ export async function processJob(intent: JobIntent, deps: WorkerDeps): Promise<v
     }
   }
 
-  const { mrIid } = await deps.runPhase1(impactIntent)
+  let mrIid: number
+  try {
+    ;({ mrIid } = await deps.runPhase1(impactIntent))
+  } catch (err) {
+    await report(impactKey, { phase: "phase1", status: "failed", activity: `phase1 failed: ${String(err)}` })
+    throw err
+  }
+  await report(impactKey, { phase: "phase1", status: "done", mrIid })
 
   if (deps.dryRun) {
     await deps.gitlab.commentMR(
@@ -195,6 +243,13 @@ export async function main() {
   }
   // Keep a separate ioredis instance for RedisStateStore (typed as unknown there).
   const connection = new IORedis(cfg.redisUrl, { maxRetriesPerRequest: null })
+
+  // Progress publisher (best-effort dashboard feed). A dedicated ioredis client
+  // is used for SET/ZADD/PUBLISH on the `progress` channel; the server's SSE
+  // endpoint SUBSCRIBEs to it. Failures never abort jobs (guarded in processJob).
+  const { createProgress } = await import("./progress.js")
+  const progressRedis = new IORedis(cfg.redisUrl, { maxRetriesPerRequest: null })
+  const progress = createProgress(progressRedis as unknown as Parameters<typeof createProgress>[0])
   const queue = await createQueue("zdc-jobs", bullmqConnection)
   const enqueuer = bullmqEnqueuer(queue)
   const bakedControlPlaneDir = process.env["CONTROL_PLANE_DIR"] ?? ""
@@ -361,6 +416,21 @@ export async function main() {
     runPhase1: async (intent) => {
       const controlPlaneDir = await resolveControlPlaneDir()
       const registry = loadRegistryFromDir(controlPlaneDir)
+      const key = jobKeyOf(intent)
+      // Per-step + per-activity progress, keyed by the stable jobKey. Best-effort:
+      // wrap reportStep so a publish failure can't break the pipeline; wrap
+      // runClaude so each tool_use is appended to the activity feed.
+      const reportStep = (step: string, status: "running" | "done" | "failed") => {
+        if (!key) return
+        void progress.report(key, { step, status }).catch(() => {})
+      }
+      const runClaudeWithActivity: typeof runClaude = (opts) =>
+        runClaude({
+          ...opts,
+          onActivity: (text) => {
+            if (key) void progress.report(key, { activity: text }).catch(() => {})
+          },
+        })
       return runPhase1Full({
         intent,
         registry,
@@ -368,8 +438,9 @@ export async function main() {
         prepareBranch,
         overlay,
         overlayPrdDocs,
-        runClaude,
+        runClaude: runClaudeWithActivity,
         reviewSolution,
+        reportStep,
         gitlab: {
           createDraftMR: (pid, branch, title, body) => git.createDraftMR(branch, title, body),
           commentMR: (pid, mrIid, body) => git.commentMR(mrIid, body),
@@ -385,13 +456,26 @@ export async function main() {
     runPhase2: async (intent) => {
       const controlPlaneDir = await resolveControlPlaneDir()
       const registry = loadRegistryFromDir(controlPlaneDir)
+      const key = jobKeyOf(intent)
+      const reportStep = (step: string, status: "running" | "done" | "failed") => {
+        if (!key) return
+        void progress.report(key, { step, status }).catch(() => {})
+      }
+      const runClaudeWithActivity: typeof runClaude = (opts) =>
+        runClaude({
+          ...opts,
+          onActivity: (text) => {
+            if (key) void progress.report(key, { activity: text }).catch(() => {})
+          },
+        })
       return runPhase2Full({
         intent,
         registry,
         checkout,
         overlay,
         overlayPrdDocs,
-        runClaude,
+        runClaude: runClaudeWithActivity,
+        reportStep,
         gitlab: {
           finalizeMR: (pid, mrIid) => git.finalizeMR(mrIid),
           commentMR: (pid, mrIid, body) => git.commentMR(mrIid, body),
@@ -419,6 +503,7 @@ export async function main() {
     handleMerged,
     enqueuer,
     projectId,
+    reportProgress: (key, patch) => progress.report(key, patch),
   }
 
   const worker = new Worker(

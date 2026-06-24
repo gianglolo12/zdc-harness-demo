@@ -38,6 +38,8 @@ type OverlayFn = (opts: OverlayOpts) => Promise<void>
 type CheckoutFn = (opts: CheckoutOpts) => Promise<string>
 type PrepareBranchFn = (opts: { checkoutDir: string; branch: string }) => Promise<void>
 type OverlayPrdDocsFn = (checkoutDir: string, controlPlaneDir: string) => Promise<void>
+/** Optional progress milestone callback. No-op in tests when omitted. */
+type ReportStepFn = (step: string, status: "running" | "done" | "failed") => void
 
 export interface Phase1Deps {
   intent: ImpactIntent
@@ -57,6 +59,8 @@ export interface Phase1Deps {
   state: Pick<StateStore, "putJob">
   projectId: number
   controlPlaneDir: string
+  /** Optional: report a pipeline milestone (checkout/overlay/memory/auto-impact/review/draft-pr). */
+  reportStep?: ReportStepFn
 }
 
 // ─── Pipeline ─────────────────────────────────────────────────────────────────
@@ -72,6 +76,7 @@ const MAX_ATTEMPTS = 2
 export async function runPhase1(deps: Phase1Deps): Promise<{ mrIid: number }> {
   const { intent, registry, checkout, prepareBranch, overlay, overlayPrdDocs, runClaude, reviewSolution, gitlab, memory, state, projectId, controlPlaneDir } =
     deps
+  const reportStep: ReportStepFn = deps.reportStep ?? (() => {})
 
   // 1. Resolve registry entry
   const entry = registry.repos[intent.target]
@@ -88,26 +93,33 @@ export async function runPhase1(deps: Phase1Deps): Promise<{ mrIid: number }> {
 
   // 2. Checkout source repo at the derived branch, then create it + empty commit + push
   //    so GitHub will let a draft PR open against it.
+  reportStep("checkout", "running")
   const checkoutDir = await checkout({ sourceRepo: entry.sourceRepo, ref: srcBranch })
   await prepareBranch({ checkoutDir, branch: srcBranch })
+  reportStep("checkout", "done")
 
   // 3. Overlay agent bundle + PRD docs into the checkout
+  reportStep("overlay", "running")
   await overlay({ checkoutDir, controlPlaneDir, bundle: entry.bundle })
   await overlayPrdDocs(checkoutDir, controlPlaneDir)
+  reportStep("overlay", "done")
 
   // 4. Load relevant memory entries.
   // Search by the PRD identifier so FTS matches issue/rootCause/fix text that
   // references this PRD. The `area` filter is intentionally omitted: intent.target
   // is a registry bundle key ("be"/"fe"), not a semantic memory area ("payment"/"auth"),
   // so filtering by it would exclude all rows.
+  reportStep("memory", "running")
   const memoryEntries: MemoryEntry[] = memory.search({ text: intent.prd })
 
   const memoryContext = buildMemoryContext(memoryEntries)
+  reportStep("memory", "done")
 
   // 5. Run /auto-impact with retry loop (max MAX_ATTEMPTS)
   let solution = ""
   let reviewNotes = ""
 
+  reportStep("auto-impact", "running")
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const input = buildImpactInput({
       prd: intent.prd,
@@ -120,16 +132,23 @@ export async function runPhase1(deps: Phase1Deps): Promise<{ mrIid: number }> {
 
     const { stdout } = await runClaude({ cwd: checkoutDir, command: commands.impact, input })
     solution = stdout
+    reportStep("auto-impact", "done")
 
     // 6. Second-opinion review
+    reportStep("review", "running")
     const review = await reviewSolution({ cwd: checkoutDir, solution, runClaude })
-    if (review.verdict === "pass") break
+    if (review.verdict === "pass") {
+      reportStep("review", "done")
+      break
+    }
 
     // If fail and last attempt, use the solution as-is
+    reportStep("review", "done")
     reviewNotes = review.notes
   }
 
   // 7. Create draft MR
+  reportStep("draft-pr", "running")
   const mrTitle = `Impact analysis: ${intent.prd} → ${intent.target}`
   const mrBody = buildMRBody({ solution, memoryEntries })
 
@@ -145,6 +164,7 @@ export async function runPhase1(deps: Phase1Deps): Promise<{ mrIid: number }> {
     revisionCount: 0,
     dispatchIssue: intent.dispatchIssue,
   })
+  reportStep("draft-pr", "done")
 
   return { mrIid: mr.iid }
 }
