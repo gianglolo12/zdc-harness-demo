@@ -6,6 +6,7 @@ skinparam maxMessageSize 220
 skinparam ParticipantPadding 14
 skinparam BoxPadding 10
 
+actor "PO\n(Product Owner)" as po
 actor "BE Dev" as dev
 participant "GitHub\n(repo đích)" as gh
 participant "server\n(Fastify)" as server
@@ -16,7 +17,7 @@ database "memory\n(SQLite FTS5)" as mem
 
 == PHASE 1 — Impact → Draft PR ==
 
-dev -> gh : (1) push feature branch\n  msg `[zdc:update-be PRD-XXX]`, đổi po/**
+po -> gh : (1) push PRD mới/cập nhật\n  đổi po/**, msg `[zdc:update-be PRD-XXX]`
 gh -> server : webhook `push`  POST /webhook
 activate server
 server -> server : (2) verify HMAC X-Hub-Signature-256\n  classifyGithub() -> {impact, be, prd, ref}
