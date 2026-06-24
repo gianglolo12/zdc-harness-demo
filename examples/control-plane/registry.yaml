@@ -1,0 +1,5 @@
+repos:
+  be:
+    source_repo: "https://github.com/gianglolo12/zdc-be-demo.git"
+    bundle: "be"
+    control_plane_ref: "main"

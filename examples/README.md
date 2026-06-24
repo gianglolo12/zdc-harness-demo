@@ -59,12 +59,39 @@ To run against real Claude + GitHub, replace the stubs in `run-demo.ts`:
 
 ```
 examples/control-plane/
+├── registry.yaml              # maps "be" target → zdc-be-demo source repo
 ├── .claude/
+│   ├── commands/
+│   │   ├── auto-impact.md         # /auto-impact slash-command (Phase 1)
+│   │   ├── auto-review-solution.md # /auto-review-solution slash-command
+│   │   └── auto-implement.md      # /auto-implement slash-command (Phase 2)
 │   └── skills/
-│       └── shared.md          # shared agent skills (impact/review/implement)
+│       └── shared.md          # shared agent skills reference
 ├── be/
 │   ├── manifest.json          # command → slash-command mapping for BE bundle
 │   └── CLAUDE.md              # BE persona injected into the checkout root
 └── po/
     └── PRD-001-create-order.md  # sample PRD used by the demo
+```
+
+## Deploying the agent bundle
+
+This `control-plane/` directory is baked into the Docker image. On the deployed worker, set:
+
+```
+CONTROL_PLANE_DIR=/app/examples/control-plane
+```
+
+The worker overlays `examples/control-plane/be/` (CLAUDE.md, manifest.json) and
+`examples/control-plane/.claude/` (commands/, skills/) into each source checkout
+before invoking `claude -p /auto-impact` or `claude -p /auto-implement`.
+
+`registry.yaml` maps the `"be"` target to the demo source repo:
+
+```yaml
+repos:
+  be:
+    source_repo: "https://github.com/gianglolo12/zdc-be-demo.git"
+    bundle: "be"
+    control_plane_ref: "main"
 ```

@@ -1,6 +1,7 @@
 {
   "commands": {
     "impact": "/auto-impact",
+    "review": "/auto-review-solution",
     "implement": "/auto-implement",
     "preview": "/auto-preview",
     "test": "/auto-test"
