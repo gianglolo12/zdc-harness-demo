@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZDC Harness — Cách trigger workflow</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#2a3340;
+    --txt:#e6edf3; --mut:#9aa7b4; --accent:#4f9cf9; --accent2:#7ee787; --warn:#f0b429; --po:#d2a8ff;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace; --sans:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.6;font-size:15px}
+  .wrap{max-width:920px;margin:0 auto;padding:0 20px 80px}
+  header{padding:46px 0 26px;border-bottom:1px solid var(--line);margin-bottom:28px}
+  h1{font-size:29px;margin:0 0 8px;letter-spacing:-.3px}
+  h2{font-size:20px;margin:40px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:16px;margin:20px 0 8px}
+  .sub{color:var(--mut);font-size:16px;max-width:720px}
+  p{margin:10px 0}
+  code{font-family:var(--mono);background:var(--panel2);padding:1.5px 6px;border-radius:5px;font-size:13px;color:#ffd9a0}
+  pre{background:#0a0e14;border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;margin:8px 0;color:#cdd9e5}
+  pre .c{color:#6b7785}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--mut);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.4px}
+  td code{white-space:nowrap}
+  ul,ol{margin:8px 0;padding-left:22px} li{margin:5px 0}
+  .tldr{background:#388bfd14;border:1px solid #388bfd33;border-radius:12px;padding:18px 22px;margin:8px 0 4px}
+  .tldr ol{margin:6px 0 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:14px 0}
+  .pill{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:6px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px}
+  .star{background:#2ea04322;color:var(--accent2)} .alt{background:#388bfd22;color:var(--accent)}
+  .note{background:#f0b42912;border:1px solid #f0b42933;border-radius:10px;padding:12px 16px;margin:14px 0}
+  .note b{color:var(--warn)}
+  .flow{background:#0a0e14;border:1px solid var(--line);border-radius:10px;padding:16px 18px;font-family:var(--mono);font-size:12.5px;white-space:pre;overflow-x:auto;color:#cdd9e5;line-height:1.5}
+  .big{font-size:16px} .accent{color:var(--accent)} .a2{color:var(--accent2)} .po{color:var(--po)}
+  footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);color:var(--mut);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>ZDC Harness — Cách trigger workflow</h1>
+  <p class="sub">Tài liệu cho team. Harness tự động hoá: <b>PRD → phân tích tác động → bạn duyệt → code + test → Pull Request</b>. Bạn chỉ cần "ra lệnh", harness lo phần còn lại và mở PR trên repo code.</p>
+</header>
+
+<div class="tldr">
+  <span class="pill star">TL;DR — 4 bước</span>
+  <ol class="big">
+    <li><b class="po">PO/BA</b>: mở 1 <b>GitHub Issue</b> trên repo control-plane, tiêu đề <code>[zdc:update-be &lt;PRD-ID&gt;]</code>.</li>
+    <li>Harness comment <i>"đã nhận"</i> rồi mở <b>draft PR</b> (kèm phân tích tác động) trên repo BE.</li>
+    <li><b class="accent">Dev</b>: đọc PR, comment <code>/approve</code> → harness code + test + đẩy commit, bỏ nháp.</li>
+    <li><b class="accent">Dev</b>: review + <b>merge</b> PR như bình thường → Issue tự đóng.</li>
+  </ol>
+</div>
+
+<h2>Khái niệm — 3 repo</h2>
+<table>
+  <tr><th>Repo</th><th>Là gì</th></tr>
+  <tr><td><b>control-plane</b><br><code>zdc-control-plane</code></td><td>Chứa PRD (<code>po/</code>) + tài liệu kỹ thuật BE (<code>be/&lt;PRD&gt;/</code>) + "bộ não" agent. <b>Bạn trigger ở đây.</b></td></tr>
+  <tr><td><b>source</b><br><code>zdc-be-demo</code></td><td>Code thật (Spring Boot). <b>PR mở ở đây.</b></td></tr>
+  <tr><td><b>harness</b></td><td>Server tự động — không cần đụng tới.</td></tr>
+</table>
+
+<h2>Cách 1 — GitHub Issue <span class="a2">⭐ khuyên dùng</span></h2>
+<div class="card">
+  <span class="pill star">Hợp PO · không cần git · không sửa file</span>
+  <ol>
+    <li>Vào repo <b>control-plane</b> → tab <b>Issues</b> → <b>New issue</b>.</li>
+    <li><b>Tiêu đề</b> đặt đúng cú pháp tag: <pre>[zdc:update-be G3-F07]</pre></li>
+    <li>Body ghi gì cũng được. Bấm <b>Submit</b>.</li>
+    <li>~30s sau, Issue có comment: <i>"🤖 Đã nhận — đang phân tích <code>G3-F07</code>…"</i></li>
+    <li>Vài phút sau, <b>draft PR</b> hiện trên repo <b>source</b> (tiêu đề <code>Impact analysis: G3-F07 → be</code>).</li>
+  </ol>
+</div>
+
+<h2>Cách 2 — Push (khi đang sửa chính nội dung PRD)</h2>
+<div class="card">
+  <span class="pill alt">Hợp dev/BA đang chỉnh PRD</span>
+  <ol>
+    <li>Trên control-plane, tạo <b>feature branch</b> (KHÔNG phải <code>main</code>).</li>
+    <li>Sửa file dưới <code>po/**</code>, commit message chứa tag:
+      <pre>git commit -m "docs(po): cập nhật G3-F07 <span class="c">[zdc:update-be G3-F07]</span>"
+git push origin &lt;feature-branch&gt;</pre>
+    </li>
+    <li>Phần còn lại giống Cách 1.</li>
+  </ol>
+  <div class="note"><b>Lưu ý:</b> push thẳng vào <code>main</code> <b>không</b> trigger (tránh kích hoạt khi merge). Phải là feature branch.</div>
+</div>
+
+<h2>Cú pháp tag</h2>
+<pre>[zdc:update-&lt;role&gt; &lt;PRD-ID&gt;]</pre>
+<ul>
+  <li><code>&lt;role&gt;</code>: <code>be</code> (backend), <code>fe</code>, <code>qa</code> — hiện đã wire <b>be</b>.</li>
+  <li><code>&lt;PRD-ID&gt;</code>: id feature, dùng gạch nối (không dấu chấm): <code>G3-F07</code>, <code>G4-F11</code>.</li>
+</ul>
+<pre>[zdc:update-be G3-F07]   <span class="c">→ BE làm feature Tạo đơn hàng</span>
+[zdc:update-be G4-F11]   <span class="c">→ BE làm feature Tra cứu thẻ</span></pre>
+
+<h2>Cổng duyệt — comment trên PR</h2>
+<p>Sau khi draft PR mở, <b>dev</b> điều khiển bằng cách comment lên PR đó:</p>
+<table>
+  <tr><th>Comment</th><th>Tác dụng</th></tr>
+  <tr><td><code>/approve</code></td><td>Đồng ý → harness code + test + đẩy commit, bỏ nháp PR</td></tr>
+  <tr><td><code>/revise &lt;góp ý&gt;</code></td><td>Phân tích lại kèm góp ý (tối đa 3 lần)</td></tr>
+  <tr><td><code>/reject</code></td><td>Từ chối — dừng, không code</td></tr>
+  <tr><td><code>/abort</code></td><td>Huỷ job</td></tr>
+</table>
+<p class="sub">Comment thường (không có lệnh) → bị bỏ qua.</p>
+
+<h2>Vòng đời đầy đủ (ví dụ G3-F07)</h2>
+<div class="flow">PO: New Issue "[zdc:update-be G3-F07]"
+      │
+      ▼
+Harness: comment "🤖 Đã nhận…"  →  mở draft PR #N trên zdc-be-demo
+      │                              (phân tích: đọc PRD + FRS + api-contract)
+      ▼
+Dev: đọc PR #N  →  comment "/approve"
+      │
+      ▼
+Harness: viết code Spring Boot + mvn test + push  →  PR hết nháp
+      │
+      ▼
+Dev: review PR #N  →  Merge
+      │
+      ▼
+Harness: đóng Issue + comment evidence trên PR</div>
+
+<h2>Câu hỏi thường gặp</h2>
+<ul>
+  <li><b>PR mở ở đâu?</b> Trên repo <b>source</b> (BE), không phải control-plane.</li>
+  <li><b>Bao lâu?</b> Phân tích ~2-4 phút; code (sau approve) vài phút–chục phút tuỳ độ lớn feature.</li>
+  <li><b>Agent đọc gì?</b> PRD (<code>po/</code>) <b>và</b> tài liệu kỹ thuật BE (<code>be/&lt;PRD&gt;/</code>: FRS + <code>api-contract.yaml</code> + diagrams) — kết hợp cả hai.</li>
+  <li><b>Đổi convention/rule cho BE?</b> Sửa bundle <code>be/</code> trong control-plane (<code>be/rules/*</code>, <code>be/CLAUDE.md</code>, <code>be/commands/*</code>) rồi push — hiệu lực ngay job kế, không cần deploy lại harness.</li>
+  <li><b>Feature quá lớn?</b> Nên chia nhỏ PRD/feature khi dispatch để PR dễ review.</li>
+</ul>
+
+<h2>Lưu ý vận hành (người quản trị)</h2>
+<ul>
+  <li>Webhook trên cả 2 repo: control-plane (<code>push</code>, <code>issues</code>) và source (<code>issue_comment</code>, <code>pull_request</code>).</li>
+  <li><code>DRY_RUN=1</code>: chỉ phân tích, không tạo PR/không push (chế độ thử).</li>
+  <li><code>HARNESS_PAUSED=1</code>: tạm dừng toàn bộ (kill-switch).</li>
+</ul>
+
+<footer>ZDC Harness · tài liệu nội bộ team · provider GitHub · cập nhật 2026-06-24</footer>
+
+</div>
+</body>
+</html>
