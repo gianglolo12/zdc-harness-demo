@@ -9,13 +9,14 @@ export interface RepoRef {
 export interface OctokitLike {
   pulls: {
     create(params: object): Promise<{ data: { number: number } }>
-    get(params: object): Promise<unknown>
+    get(params: object): Promise<{ data: { node_id: string; number: number } }>
     update(params: object): Promise<unknown>
   }
   issues: {
     createComment(params: object): Promise<unknown>
     addLabels(params: object): Promise<unknown>
   }
+  graphql?: (query: string, variables?: Record<string, unknown>) => Promise<unknown>
 }
 
 export class GitHubClient {
@@ -52,6 +53,17 @@ export class GitHubClient {
 
   async finalizeMR(repoRef: RepoRef, prNumber: number): Promise<unknown> {
     const { owner, repo } = repoRef
+    // GitHub REST pulls.update({draft:false}) is a no-op — draft can only be cleared via GraphQL.
+    // Fetch the node_id then call markPullRequestReadyForReview via GraphQL.
+    const pr = await this.octokit.pulls.get({ owner, repo, pull_number: prNumber })
+    const nodeId = pr.data.node_id
+    if (typeof this.octokit.graphql === "function") {
+      await this.octokit.graphql(
+        `mutation($id:ID!){ markPullRequestReadyForReview(input:{pullRequestId:$id}){ pullRequest { isDraft } } }`,
+        { id: nodeId },
+      )
+    }
+    // Fallback REST call (no-op for draft toggle but keeps compatibility with REST-only clients).
     return this.octokit.pulls.update({ owner, repo, pull_number: prNumber, draft: false })
   }
 

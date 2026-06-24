@@ -1,4 +1,5 @@
 import type { Registry } from "../registry.js"
+import { resolve } from "../registry.js"
 import type { OverlayOpts } from "../overlay.js"
 import type { ClaudeRunnerOpts, ClaudeResult } from "../claude-runner.js"
 import type { MemoryStore } from "../memory-store.js"
@@ -88,14 +89,19 @@ export async function runPhase2(deps: Phase2Deps): Promise<void> {
   // I3: do NOT reuse the BE ref — the FE repo likely lacks that branch. Use "main" as the
   // default base branch so the clone succeeds on the FE repo's default branch.
   if (footer?.affects_fe && intent.target === "be") {
-    const feJob: ImpactJobIntent = {
-      type: "impact",
-      target: "fe",
-      prd: intent.prd,
-      ref: "main",
-      api_contract: footer.api_contract,
+    const feEntry = resolve(registry, "fe")
+    if (!feEntry) {
+      console.warn("[phase2] no registry entry for fe target; skipping FE handoff")
+    } else {
+      const feJob: ImpactJobIntent = {
+        type: "impact",
+        target: "fe",
+        prd: intent.prd,
+        ref: "main",
+        api_contract: footer.api_contract,
+      }
+      await enqueuer.enqueue(feJob)
     }
-    await enqueuer.enqueue(feJob)
   }
 }
 

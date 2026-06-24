@@ -21,7 +21,12 @@ function makeDeps(overrides: Partial<Phase2Deps> = {}): Phase2Deps {
 
   const deps: Phase2Deps = {
     intent: { type: "phase2", mrIid: 42, target: "be", prd: "my-prd", ref: "feature-x" },
-    registry: { repos: { be: { sourceRepo: "git@gitlab.com/org/be.git", bundle: "be", controlPlaneRef: "main" } } },
+    registry: {
+      repos: {
+        be: { sourceRepo: "git@gitlab.com/org/be.git", bundle: "be", controlPlaneRef: "main" },
+        fe: { sourceRepo: "git@gitlab.com/org/fe.git", bundle: "fe", controlPlaneRef: "main" },
+      },
+    },
     checkout,
     overlay,
     runClaude,
@@ -132,6 +137,22 @@ describe("runPhase2", () => {
     })
 
     await expect(runPhase2(deps)).rejects.toThrow(/Registry/)
+  })
+
+  it("affects_fe:true + target=be + no fe registry entry → enqueuer NOT called, no throw", async () => {
+    const deps = makeDeps({
+      // Registry only has "be", no "fe" entry
+      registry: { repos: { be: { sourceRepo: "git@gitlab.com/org/be.git", bundle: "be", controlPlaneRef: "main" } } },
+      runClaude: vi
+        .fn()
+        .mockResolvedValue({
+          stdout:
+            'work done\n{"pushed":true,"mr_iid":42,"affects_fe":true,"api_contract":"{\\"endpoint\\":\\"/api/v2\\"}"}',
+        }),
+    })
+
+    await expect(runPhase2(deps)).resolves.not.toThrow()
+    expect(deps.enqueuer.enqueue).not.toHaveBeenCalled()
   })
 
   it("handles stdout without JSON footer gracefully (no crash)", async () => {

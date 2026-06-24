@@ -6,13 +6,14 @@ function makeFakeOctokit(): OctokitLike {
   return {
     pulls: {
       create: vi.fn().mockResolvedValue({ data: { number: 42 } }),
-      get: vi.fn().mockResolvedValue({ data: { number: 42, title: "my PR" } }),
+      get: vi.fn().mockResolvedValue({ data: { number: 42, node_id: "PR_node1", title: "my PR" } }),
       update: vi.fn().mockResolvedValue({ data: {} }),
     },
     issues: {
       createComment: vi.fn().mockResolvedValue({ data: {} }),
       addLabels: vi.fn().mockResolvedValue({ data: [] }),
     },
+    graphql: vi.fn().mockResolvedValue({}),
   }
 }
 
@@ -74,12 +75,27 @@ describe("GitHubClient", () => {
   })
 
   describe("finalizeMR", () => {
-    it("calls pulls.update with draft:false to mark PR ready", async () => {
+    it("fetches node_id then calls graphql markPullRequestReadyForReview", async () => {
       const octokit = makeFakeOctokit()
       const client = new GitHubClient(octokit)
 
       await client.finalizeMR(REPO, 42)
 
+      // Must first fetch the PR to get node_id
+      expect(octokit.pulls.get).toHaveBeenCalledOnce()
+      expect(octokit.pulls.get).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "my-repo",
+        pull_number: 42,
+      })
+
+      // Must call GraphQL mutation with the node_id
+      expect(octokit.graphql).toHaveBeenCalledOnce()
+      const [query, vars] = (octokit.graphql as ReturnType<typeof vi.fn>).mock.calls[0]
+      expect(query).toContain("markPullRequestReadyForReview")
+      expect(vars).toEqual({ id: "PR_node1" })
+
+      // REST fallback still called (no-op for draft but keeps compat)
       expect(octokit.pulls.update).toHaveBeenCalledOnce()
       expect(octokit.pulls.update).toHaveBeenCalledWith({
         owner: "acme",
@@ -87,6 +103,16 @@ describe("GitHubClient", () => {
         pull_number: 42,
         draft: false,
       })
+    })
+
+    it("skips graphql if octokit.graphql is not a function", async () => {
+      const octokit = makeFakeOctokit()
+      delete (octokit as Partial<OctokitLike>).graphql
+      const client = new GitHubClient(octokit)
+
+      // Should not throw even without graphql
+      await expect(client.finalizeMR(REPO, 42)).resolves.not.toThrow()
+      expect(octokit.pulls.update).toHaveBeenCalledOnce()
     })
   })
 
