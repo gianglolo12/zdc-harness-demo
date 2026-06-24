@@ -41,6 +41,10 @@ services:
       - GITLAB_PROJECT_ID=${GITLAB_PROJECT_ID}
       - CONTROL_PLANE_DIR=/app/examples/control-plane
       - SQLITE_MEMORY_DB=/data/memory.sqlite
+      # Container runs as root; claude refuses --dangerously-skip-permissions as
+      # root unless IS_SANDBOX=1 (verified in CLI source: getuid()===0 &&
+      # IS_SANDBOX!=="1" -> exit 1). Headless worker has no permission approver.
+      - IS_SANDBOX=1
       - DRY_RUN=${DRY_RUN:-1}
       - HARNESS_PAUSED=${HARNESS_PAUSED:-0}
       - GIT_PROVIDER=${GIT_PROVIDER:-gitlab}
