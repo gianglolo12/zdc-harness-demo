@@ -19,6 +19,8 @@ export interface ImpactIntent {
   feedback?: string
   /** BE→FE API contract from Phase 2 handoff (I2). */
   api_contract?: string
+  /** Control-plane Issue number that dispatched this job (GitHub PO dispatch). */
+  dispatchIssue?: number
 }
 
 // ─── Injected dependencies ────────────────────────────────────────────────────
@@ -141,6 +143,7 @@ export async function runPhase1(deps: Phase1Deps): Promise<{ mrIid: number }> {
     ref: srcBranch,
     phase: "phase1",
     revisionCount: 0,
+    dispatchIssue: intent.dispatchIssue,
   })
 
   return { mrIid: mr.iid }

@@ -12,6 +12,7 @@ function makeFakeOctokit(): OctokitLike {
     issues: {
       createComment: vi.fn().mockResolvedValue({ data: {} }),
       addLabels: vi.fn().mockResolvedValue({ data: [] }),
+      update: vi.fn().mockResolvedValue({ data: {} }),
     },
     graphql: vi.fn().mockResolvedValue({}),
   }
@@ -129,6 +130,23 @@ describe("GitHubClient", () => {
         repo: "my-repo",
         issue_number: 42,
         labels: ["ready-for-review"],
+      })
+    })
+  })
+
+  describe("closeIssue", () => {
+    it("calls issues.update with state closed", async () => {
+      const octokit = makeFakeOctokit()
+      const client = new GitHubClient(octokit)
+
+      await client.closeIssue(REPO, 7)
+
+      expect(octokit.issues.update).toHaveBeenCalledOnce()
+      expect(octokit.issues.update).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "my-repo",
+        issue_number: 7,
+        state: "closed",
       })
     })
   })

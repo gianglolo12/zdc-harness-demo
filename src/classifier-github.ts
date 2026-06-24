@@ -25,7 +25,23 @@ export function classifyGithub(event: string, payload: any): Classified {
     return classifyIssue(payload)
   }
 
+  if (event === "pull_request") {
+    return classifyPullRequest(payload)
+  }
+
   return { type: "ignore", reason: `unhandled event: ${event}` }
+}
+
+/**
+ * A merged PR on the SOURCE repo signals the BE work is done. Only a closed PR
+ * with merged === true counts (closed-without-merge is ignored). The merge
+ * handler then posts evidence + closes the originating control-plane dispatch.
+ */
+function classifyPullRequest(payload: any): Classified {
+  if (payload.action === "closed" && payload.pull_request?.merged === true) {
+    return { type: "merged", mrIid: payload.pull_request.number }
+  }
+  return { type: "ignore", reason: "pull_request not a merge" }
 }
 
 /**
@@ -47,7 +63,8 @@ function classifyIssue(payload: any): Classified {
   // ref is unused for source ops (Phase 1 derives the source branch from
   // role+prd); keep an issue-scoped label for traceability/logging.
   const ref = `issue-${payload.issue?.number ?? "0"}`
-  return { type: "impact", target: m[1], prd: m[2], ref }
+  // Carry the dispatching Issue number so the merge handler can close it later.
+  return { type: "impact", target: m[1], prd: m[2], ref, dispatchIssue: payload.issue.number }
 }
 
 function classifyPush(payload: any): Classified {

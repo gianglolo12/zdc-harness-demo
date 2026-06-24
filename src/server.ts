@@ -21,7 +21,7 @@ export type ServerDeps =
 
 // ─── Types that trigger an enqueue ───────────────────────────────────────────
 
-const ACTIONABLE_TYPES = new Set(["impact", "approve", "revise", "reject", "abort"])
+const ACTIONABLE_TYPES = new Set(["impact", "approve", "revise", "reject", "abort", "merged"])
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
 

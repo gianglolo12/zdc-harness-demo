@@ -146,6 +146,7 @@ describe("runPhase1", () => {
       ref: "zdc-be-prd-42",
       phase: "phase1",
       revisionCount: 0,
+      dispatchIssue: undefined,
     })
   })
 

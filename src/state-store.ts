@@ -5,6 +5,8 @@ export type Job = {
   ref: string
   phase: string
   revisionCount: number
+  /** Control-plane Issue number that dispatched this job (closed on merge). */
+  dispatchIssue?: number
 }
 
 /** Interface that any state backend must satisfy. All methods are async. */

@@ -15,6 +15,7 @@ export interface OctokitLike {
   issues: {
     createComment(params: object): Promise<unknown>
     addLabels(params: object): Promise<unknown>
+    update(params: object): Promise<unknown>
   }
   graphql?: (query: string, variables?: Record<string, unknown>) => Promise<unknown>
 }
@@ -65,6 +66,11 @@ export class GitHubClient {
     }
     // Fallback REST call (no-op for draft toggle but keeps compatibility with REST-only clients).
     return this.octokit.pulls.update({ owner, repo, pull_number: prNumber, draft: false })
+  }
+
+  async closeIssue(repoRef: RepoRef, issueNumber: number): Promise<unknown> {
+    const { owner, repo } = repoRef
+    return this.octokit.issues.update({ owner, repo, issue_number: issueNumber, state: "closed" })
   }
 
   async setLabel(repoRef: RepoRef, prNumber: number, label: string): Promise<unknown> {

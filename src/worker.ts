@@ -4,6 +4,24 @@ import type { Phase2JobIntent } from "./pipeline/human-gate.js"
 import type { Config } from "./config.js"
 import { GitLabClient, fromConfig as gitlabFromConfig } from "./gitlab.js"
 import { GitHubClient, fromConfig as githubFromConfig } from "./github.js"
+import type { RepoRef } from "./github.js"
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Parse a GitHub clone URL (https://github.com/<owner>/<repo>.git) into a RepoRef.
+ * Strips protocol + trailing ".git", then splits owner/repo. Returns undefined
+ * when the URL doesn't yield both parts.
+ */
+export function parseRepoRef(url: string): RepoRef | undefined {
+  const stripped = url
+    .replace(/^https?:\/\//, "")
+    .replace(/\.git$/, "")
+    .replace(/^github\.com\//, "")
+  const [owner, repo] = stripped.split("/")
+  if (!owner || !repo) return undefined
+  return { owner, repo }
+}
 
 // ─── Injected dependencies interface ─────────────────────────────────────────
 
@@ -30,6 +48,16 @@ export interface WorkerDeps {
   gitlab: {
     commentMR(projectId: number, mrIid: number, body: string): Promise<unknown>
   }
+  /**
+   * Posts an ACK comment on the control-plane dispatch Issue (GitHub-only).
+   * No-op when there is no control-plane repo or provider is GitLab.
+   */
+  ackDispatch: (issueNumber: number, body: string) => Promise<void>
+  /**
+   * Handles a merged source PR: posts evidence on the PR and closes the
+   * originating control-plane dispatch Issue (GitHub-only). No-op otherwise.
+   */
+  handleMerged: (mrIid: number) => Promise<void>
   enqueuer: Enqueuer
   projectId: number
 }
@@ -62,6 +90,11 @@ export async function processJob(intent: JobIntent, deps: WorkerDeps): Promise<v
     return
   }
 
+  if (intent.type === "merged") {
+    await deps.handleMerged(intent.mrIid)
+    return
+  }
+
   if (intent.type !== "impact") {
     console.log("[worker] unknown intent type, skipping:", intent.type)
     return
@@ -69,6 +102,19 @@ export async function processJob(intent: JobIntent, deps: WorkerDeps): Promise<v
 
   // Narrowed by the intent.type !== "impact" guard above — no cast needed.
   const impactIntent = intent as ImpactJobIntent
+
+  // PO dispatch (GitHub Issue): ACK on the control-plane Issue before analysis.
+  // A comment failure must never abort the job — log and continue.
+  if (typeof impactIntent.dispatchIssue === "number") {
+    try {
+      await deps.ackDispatch(
+        impactIntent.dispatchIssue,
+        `🤖 Đã nhận — đang phân tích \`${impactIntent.prd}\` cho \`${impactIntent.target}\`. Sẽ mở draft PR trên repo nguồn.`,
+      )
+    } catch (err) {
+      console.warn("[worker] ackDispatch failed (non-fatal):", err)
+    }
+  }
 
   const { mrIid } = await deps.runPhase1(impactIntent)
 
@@ -240,7 +286,16 @@ export async function main() {
     setLabel(mrIid: number, label: string): Promise<unknown>
   }
 
+  // Control-plane repoRef (GitHub-only): derived from cfg.controlPlaneRepo so the
+  // merge handler / ACK can comment on + close the dispatch Issue. Stays undefined
+  // for GitLab or when CONTROL_PLANE_REPO is unset.
+  const controlPlaneRepoRef =
+    gitKind === "github" && cfg.controlPlaneRepo ? parseRepoRef(cfg.controlPlaneRepo) : undefined
+
   let git: GitAdapter
+  // ackDispatch / handleMerged are GitHub-only; GitLab path overrides them with no-ops.
+  let ackDispatch: WorkerDeps["ackDispatch"] = async () => {}
+  let handleMerged: WorkerDeps["handleMerged"] = async () => {}
   if (gitKind === "github") {
     const gh = gitClient as import("./github.js").GitHubClient
     const repoRef = cfg.github!
@@ -250,6 +305,34 @@ export async function main() {
       getMR: (mrIid) => gh.getMR(repoRef, mrIid),
       finalizeMR: (mrIid) => gh.finalizeMR(repoRef, mrIid),
       setLabel: (mrIid, label) => gh.setLabel(repoRef, mrIid, label),
+    }
+
+    // ACK on the control-plane Issue. No-op without a control-plane repoRef.
+    ackDispatch = async (issueNumber, body) => {
+      if (!controlPlaneRepoRef) return
+      await gh.commentMR(controlPlaneRepoRef, issueNumber, body)
+    }
+
+    // On merge: only act for PRs that originated from an issue dispatch.
+    // Post evidence on the source PR, then comment + close the dispatch Issue.
+    handleMerged = async (mrIid) => {
+      try {
+        const job = await stateStore.getJob(String(mrIid))
+        if (!job?.dispatchIssue || !controlPlaneRepoRef) return
+        await gh.commentMR(
+          repoRef,
+          mrIid,
+          `✅ Evidence — PR merged. Fulfils PO dispatch: control-plane issue #${job.dispatchIssue}.`,
+        )
+        await gh.commentMR(
+          controlPlaneRepoRef,
+          job.dispatchIssue,
+          `✅ Hoàn tất — đã merge PR #${mrIid} trên repo nguồn.`,
+        )
+        await gh.closeIssue(controlPlaneRepoRef, job.dispatchIssue)
+      } catch (err) {
+        console.warn("[worker] handleMerged failed (non-fatal):", err)
+      }
     }
   } else {
     const gl = gitClient as import("./gitlab.js").GitLabClient
@@ -332,6 +415,8 @@ export async function main() {
         projectId,
       }),
     gitlab: { commentMR: (pid, mrIid, body) => git.commentMR(mrIid, body) },
+    ackDispatch,
+    handleMerged,
     enqueuer,
     projectId,
   }

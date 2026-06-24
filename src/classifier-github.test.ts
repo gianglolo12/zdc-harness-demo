@@ -39,6 +39,7 @@ describe("classifyGithub — issues event (PO dispatch)", () => {
       target: "be",
       prd: "G3-F09",
       ref: "issue-7",
+      dispatchIssue: 7,
     })
   })
 
@@ -226,6 +227,26 @@ describe("classifyGithub — issue_comment event on PR", () => {
   it("comment on plain issue (no pull_request) → ignore", () => {
     expect(
       classifyGithub("issue_comment", issueCommentPayload("/approve", 99))
+    ).toMatchObject({ type: "ignore" })
+  })
+})
+
+describe("classifyGithub — pull_request event (merge)", () => {
+  it("closed + merged → merged with mrIid", () => {
+    expect(
+      classifyGithub("pull_request", { action: "closed", pull_request: { number: 88, merged: true } }),
+    ).toEqual({ type: "merged", mrIid: 88 })
+  })
+
+  it("closed + not merged → ignore", () => {
+    expect(
+      classifyGithub("pull_request", { action: "closed", pull_request: { number: 88, merged: false } }),
+    ).toMatchObject({ type: "ignore" })
+  })
+
+  it("opened → ignore", () => {
+    expect(
+      classifyGithub("pull_request", { action: "opened", pull_request: { number: 88 } }),
     ).toMatchObject({ type: "ignore" })
   })
 })
