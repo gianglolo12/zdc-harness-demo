@@ -17,7 +17,7 @@ RUN apt-get update \
  && apt-get update \
  && apt-get install -y --no-install-recommends temurin-21-jdk \
  && ln -s "$(ls -d /usr/lib/jvm/temurin-21-jdk-*)" /opt/java \
- && wget -qO /tmp/maven.tar.gz https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz \
+ && wget -qO /tmp/maven.tar.gz https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz \
  && tar -xzf /tmp/maven.tar.gz -C /opt \
  && ln -s /opt/apache-maven-3.9.9 /opt/maven \
  && rm -f /tmp/maven.tar.gz \
