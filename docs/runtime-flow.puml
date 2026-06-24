@@ -1,0 +1,94 @@
+@startuml zdc-harness-runtime-flow
+title ZDC Harness — Runtime Flow (đang chạy thật, provider = GitHub)
+
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 220
+skinparam ParticipantPadding 14
+skinparam BoxPadding 10
+
+actor "BE Dev" as dev
+participant "GitHub\n(repo đích)" as gh
+participant "server\n(Fastify)" as server
+queue "Redis\nBullMQ + state" as redis
+participant "worker\n(BullMQ consumer)" as worker
+participant "claude -p\n(checkout)" as claude
+database "memory\n(SQLite FTS5)" as mem
+
+== PHASE 1 — Impact → Draft PR ==
+
+dev -> gh : (1) push feature branch\n  msg `[zdc:update-be PRD-XXX]`, đổi po/**
+gh -> server : webhook `push`  POST /webhook
+activate server
+server -> server : (2) verify HMAC X-Hub-Signature-256\n  classifyGithub() -> {impact, be, prd, ref}
+server -> redis : (3) enqueue job `impact` (queue zdc-jobs)
+server --> gh : 200 {ok, type:"impact"}
+deactivate server
+
+redis -> worker : (4) job impact (kill-switch check)
+activate worker
+worker -> gh : (5) git clone --depth=1 --branch <ref>
+worker -> worker : overlay .claude/ + bundle be/\n  (.git/info/exclude)
+worker -> mem : (6) memory.search (bài học liên quan)
+worker -> claude : /auto-impact (PRD + memory)
+activate claude
+claude -> claude : đọc PRD + codebase\n  -> impact analysis (markdown)
+claude --> worker : solution
+deactivate claude
+worker -> claude : (7) /auto-review-solution (second-opinion)
+activate claude
+claude --> worker : {verdict, notes}  (fail -> lặp ≤2)
+deactivate claude
+worker -> gh : (8) createDraftMR -> pulls.create{draft:true}
+worker -> redis : putJob(mrIid, {phase:1, revisionCount:0})
+deactivate worker
+note over worker, gh #LightYellow
+  Kết thúc Phase 1 — dừng chờ cổng người ✅ (live: PR#1/2/3)
+end note
+
+== CỔNG NGƯỜI (comment trên PR) ==
+
+dev -> gh : (9) comment /approve | /revise | /reject | /abort
+gh -> server : webhook `issue_comment`
+activate server
+server -> server : verify + classify
+server -> redis : enqueue command
+deactivate server
+redis -> worker : (10) route -> handleCommand
+activate worker
+alt /revise <góp ý>
+  worker -> worker : incRevision; <3 -> enqueue impact lại\n  ≥3 -> label needs-human, dừng
+else /reject | /abort
+  worker -> gh : comment, dừng (không code)
+else /approve
+  worker -> redis : enqueue **phase2** {mrIid, target, prd, ref}
+end
+deactivate worker
+
+== PHASE 2 — Implement → Finalize PR ==
+
+redis -> worker : (11) job phase2 -> runPhase2
+activate worker
+worker -> gh : checkout + overlay lên branch head của PR
+worker -> claude : (12) /auto-implement (PRD/Branch/MR)
+activate claude
+claude -> claude : edit source thật + viết test + node --test
+claude -> gh : git add -A / commit / push origin HEAD
+claude --> worker : footer {pushed, mr_iid, affects_fe, api_contract}
+deactivate claude
+note right of claude #LightYellow
+  ✅ proven (local): commit e62cb2a đẩy code thật lên PR#3
+end note
+worker -> gh : (13) finalizeMR -> GraphQL\n  markPullRequestReadyForReview (un-draft)
+note right of gh #LightYellow
+  ✅ proven: PR#3 draft=false
+end note
+worker -> mem : (14) memory.write (bài học)
+opt affects_fe = true && registry có target `fe`
+  worker -> redis : enqueue impact job cho fe (kèm api_contract)
+end
+deactivate worker
+note over worker, gh #LightGreen
+  Kết thúc Phase 2 — PR un-draft + có code -> người review + merge
+end note
+
+@enduml
