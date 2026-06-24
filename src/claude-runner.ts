@@ -39,7 +39,11 @@ function parseTokenFooter(stdout: string): { tokensIn?: number; tokensOut?: numb
 }
 
 export async function runClaude(opts: ClaudeRunnerOpts): Promise<ClaudeResult> {
-  const args = ["-p", opts.command]
+  // --dangerously-skip-permissions: the worker runs claude headless inside an
+  // isolated container; without it, Edit/Write/Bash tools block on a permission
+  // prompt with no approver, so /auto-implement can't edit files or git-push
+  // (Phase 1 = read-only analysis worked; Phase 2 = needs tools, silently no-op'd).
+  const args = ["--dangerously-skip-permissions", "-p", opts.command]
   const runner = opts.runner ?? defaultRunner
   const { stdout } = await runner(opts, args)
   return { stdout, ...parseTokenFooter(stdout) }
