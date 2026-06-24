@@ -16,17 +16,16 @@ Branch: <branch-name>
 MR: !<mr-iid>
 ```
 
-- `Branch` is the target branch name — create it with `git checkout -b <branch>` before committing.
-- `MR` is the GitLab MR IID for reference (do not open a new MR; the harness manages that).
+- The worker has ALREADY checked out the PR's head branch (`Branch`). Do NOT create a new branch — commit directly on the current branch so the existing draft PR receives your commits.
+- `MR` is the PR/MR number for reference (do not open a new PR; the harness manages that).
 
 ## Steps (execute in order)
 
 1. **Read the PRD file** — find the matching file under `po/` (e.g. `po/PRD-001-create-order.md`) and understand requirements.
 2. **Implement** — write the minimal code satisfying the PRD. Follow existing code conventions in the checkout.
 3. **Run tests** — if a test command is discoverable (`npm test`, `go test ./...`, `pytest`, etc.), run it. If tests fail, fix them before proceeding. If no tests exist, skip.
-4. **Create branch** — `git checkout -b <branch-name>`.
-5. **Commit** — stage all changes, commit with a conventional commit message referencing the PRD.
-6. **Push** — `git push origin <branch-name>`.
+4. **Commit** — stage all changes on the CURRENT branch (already the PR head), commit with a conventional commit message referencing the PRD. Do NOT create a new branch.
+5. **Push** — `git push origin HEAD` (pushes the current branch; credentials are already configured by the worker).
 7. **Emit JSON footer** — output the footer as the **last line** of stdout (no trailing newline after it).
 
 ## JSON footer — MANDATORY LAST LINE

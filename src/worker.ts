@@ -177,6 +177,18 @@ export async function main() {
       // Branch not found in remote — clone default branch and let agent create its own.
       await execFileAsync("git", ["clone", "--depth=1", opts.sourceRepo, dest])
     }
+    // Enable authenticated pushes (Phase 2): embed the GitHub token in the origin
+    // remote + set a committer identity. Without this, `git push` from /auto-implement
+    // fails (clone is public but push needs credentials).
+    if (cfg.gitProvider === "github" && cfg.github?.token) {
+      const authUrl = opts.sourceRepo.replace(
+        "https://github.com/",
+        `https://x-access-token:${cfg.github.token}@github.com/`,
+      )
+      await execFileAsync("git", ["-C", dest, "remote", "set-url", "origin", authUrl])
+      await execFileAsync("git", ["-C", dest, "config", "user.name", "zdc-harness-bot"])
+      await execFileAsync("git", ["-C", dest, "config", "user.email", "bot@zdc-harness.local"])
+    }
     return dest
   }
 
