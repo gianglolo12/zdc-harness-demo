@@ -27,6 +27,34 @@ function issueCommentPayload(body: string, issueNumber: number) {
   }
 }
 
+// Helper: issues event payload (PO dispatch via issue title)
+function issuePayload(title: string, action = "opened", number = 7) {
+  return { action, issue: { number, title } }
+}
+
+describe("classifyGithub — issues event (PO dispatch)", () => {
+  it("opened issue with tagged title → impact for that PRD", () => {
+    expect(classifyGithub("issues", issuePayload("[zdc:update-be G3-F09]"))).toEqual({
+      type: "impact",
+      target: "be",
+      prd: "G3-F09",
+      ref: "issue-7",
+    })
+  })
+
+  it("ignores non-opened actions", () => {
+    expect(classifyGithub("issues", issuePayload("[zdc:update-be G3-F09]", "edited"))).toMatchObject({
+      type: "ignore",
+    })
+  })
+
+  it("ignores issue title without a zdc tag", () => {
+    expect(classifyGithub("issues", issuePayload("please build the order history"))).toMatchObject({
+      type: "ignore",
+    })
+  })
+})
+
 describe("classifyGithub — push event", () => {
   it("valid push → impact", () => {
     const payload = pushPayload("refs/heads/feature/demo", [

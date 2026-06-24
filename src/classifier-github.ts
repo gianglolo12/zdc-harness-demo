@@ -21,7 +21,33 @@ export function classifyGithub(event: string, payload: any): Classified {
     return classifyIssueComment(payload)
   }
 
+  if (event === "issues") {
+    return classifyIssue(payload)
+  }
+
   return { type: "ignore", reason: `unhandled event: ${event}` }
+}
+
+/**
+ * PO dispatch: opening an Issue whose TITLE carries the zdc tag
+ * (e.g. "[zdc:update-be G3-F09]") triggers an impact job for that PRD.
+ * Lets a non-technical PO kick off BE work on a chosen PRD from the GitHub
+ * Issues UI — no git, no PRD edit. Only the `opened` action fires.
+ * Note: GitHub sends opening a PR as a `pull_request` event, NOT `issues`,
+ * so the harness's own draft PR cannot re-trigger this path.
+ */
+function classifyIssue(payload: any): Classified {
+  if (payload.action !== "opened") {
+    return { type: "ignore", reason: "non-opened issue action" }
+  }
+  const title: string = payload.issue?.title ?? ""
+  const m = TAG.exec(title)
+  if (!m) return { type: "ignore", reason: "issue title has no zdc tag" }
+
+  // ref is unused for source ops (Phase 1 derives the source branch from
+  // role+prd); keep an issue-scoped label for traceability/logging.
+  const ref = `issue-${payload.issue?.number ?? "0"}`
+  return { type: "impact", target: m[1], prd: m[2], ref }
 }
 
 function classifyPush(payload: any): Classified {
