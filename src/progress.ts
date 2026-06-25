@@ -6,7 +6,7 @@
 const KEY_PREFIX = "progress:"
 const INDEX_KEY = "progress:index"
 const CHANNEL = "progress"
-const ACTIVITY_CAP = 40
+const ACTIVITY_CAP = 200
 const LIST_CAP = 50
 
 export interface ProgressStep {
@@ -17,6 +17,8 @@ export interface ProgressStep {
 export interface ProgressActivity {
   ts: number
   text: string
+  /** The pipeline step that was active when this activity occurred. */
+  step?: string
 }
 
 export interface ProgressRecord {
@@ -49,6 +51,13 @@ export interface ProgressPatch {
   mrIid?: number
   activity?: string
   now?: number
+  /**
+   * Start a fresh run for this key: clear steps/activity/timing/PR so the
+   * tracker reflects only the CURRENT active run (no stale data from a prior
+   * dispatch of the same job). Identity/PR fields are re-applied from this
+   * same patch when present.
+   */
+  reset?: boolean
 }
 
 // Minimal ioredis-shaped surface we depend on (real ioredis satisfies it; tests
@@ -96,7 +105,8 @@ export function createProgress(redis: ProgressRedis): Progress {
   }
 
   async function doReport(key: string, patch: ProgressPatch): Promise<void> {
-    const existing = (await get(key)) ?? emptyRecord(key)
+    // reset → start from a clean record so the tracker shows only this run.
+    const existing = patch.reset ? emptyRecord(key) : ((await get(key)) ?? emptyRecord(key))
     const now = typeof patch.now === "number" ? patch.now : Date.now()
 
     const record: ProgressRecord = { ...existing, key }
@@ -108,9 +118,13 @@ export function createProgress(redis: ProgressRedis): Progress {
     if (patch.prUrl !== undefined) record.prUrl = patch.prUrl
     if (patch.mrIid !== undefined) record.mrIid = patch.mrIid
 
-    // Activity: append capped feed entry.
+    // Activity: append capped feed entry, tagged with the currently-active step
+    // (record.step carries the last step set to "running") so the dashboard can
+    // attribute each log line to the right step.
     if (typeof patch.activity === "string") {
-      record.activity = [...record.activity, { ts: now, text: patch.activity }]
+      const entry: ProgressActivity = { ts: now, text: patch.activity }
+      if (record.step) entry.step = record.step
+      record.activity = [...record.activity, entry]
       if (record.activity.length > ACTIVITY_CAP) {
         record.activity = record.activity.slice(record.activity.length - ACTIVITY_CAP)
       }

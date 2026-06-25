@@ -107,7 +107,7 @@ export async function processJob(intent: JobIntent, deps: WorkerDeps): Promise<v
   if (intent.type === "phase2") {
     const p2 = intent as Phase2JobIntent
     const key = jobKeyOf(p2)
-    await report(key, { target: p2.target, prd: p2.prd, phase: "phase2", status: "running", mrIid: p2.mrIid })
+    await report(key, { reset: true, target: p2.target, prd: p2.prd, phase: "phase2", status: "running", mrIid: p2.mrIid })
     try {
       await deps.runPhase2(p2)
       await report(key, { phase: "phase2", status: "done" })
@@ -138,6 +138,7 @@ export async function processJob(intent: JobIntent, deps: WorkerDeps): Promise<v
   const impactIntent = intent as ImpactJobIntent
   const impactKey = jobKeyOf(impactIntent)
   await report(impactKey, {
+    reset: true,
     target: impactIntent.target,
     prd: impactIntent.prd,
     phase: "phase1",

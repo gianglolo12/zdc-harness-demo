@@ -75,16 +75,16 @@ describe("createProgress", () => {
     expect(rec.status).toBe("done")
   })
 
-  it("appends activity and caps the feed at 40 entries", async () => {
+  it("appends activity and caps the feed at 200 entries", async () => {
     const p = createProgress(redis)
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 210; i++) {
       await p.report("be-F07", { activity: `act-${i}`, now: i })
     }
     const rec = (await p.get("be-F07"))!
-    expect(rec.activity).toHaveLength(40)
+    expect(rec.activity).toHaveLength(200)
     // oldest dropped, newest kept
     expect(rec.activity[0]!.text).toBe("act-10")
-    expect(rec.activity.at(-1)!.text).toBe("act-49")
+    expect(rec.activity.at(-1)!.text).toBe("act-209")
   })
 
   it("job-level status without a step does not create a step entry", async () => {
@@ -122,5 +122,30 @@ describe("createProgress", () => {
     const rec = (await p.get("be-F07"))!
     expect(rec.mrIid).toBe(42)
     expect(rec.prUrl).toBe("https://github.com/x/y/pull/42")
+  })
+
+  it("reset clears stale steps/activity/timing for a fresh run", async () => {
+    const p = createProgress(redis)
+    await p.report("be-F07", { step: "checkout", status: "done", now: 100 })
+    await p.report("be-F07", { activity: "old action", now: 110 })
+    await p.report("be-F07", { reset: true, phase: "phase1", status: "running", now: 500 })
+    const rec = (await p.get("be-F07"))!
+    expect(rec.steps).toEqual([])
+    expect(rec.activity).toEqual([])
+    expect(rec.startedAt).toBe(500)
+    expect(rec.phase).toBe("phase1")
+  })
+
+  it("tags each activity with the currently-active step", async () => {
+    const p = createProgress(redis)
+    await p.report("be-F07", { step: "auto-impact", status: "running", now: 1 })
+    await p.report("be-F07", { activity: "Read FRS", now: 2 })
+    await p.report("be-F07", { step: "auto-implement", status: "running", now: 3 })
+    await p.report("be-F07", { activity: "Bash mvn test", now: 4 })
+    const rec = (await p.get("be-F07"))!
+    expect(rec.activity.map((a) => [a.step, a.text])).toEqual([
+      ["auto-impact", "Read FRS"],
+      ["auto-implement", "Bash mvn test"],
+    ])
   })
 })

@@ -50,6 +50,7 @@ export const dashboardHtml: string = `<!doctype html>
     max-height: 150px; overflow-y: auto; padding: 6px 8px; font-size: 12px; }
   .feed div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
   .feed div .t { color: var(--accent); }
+  .feed div .s { color: #d2a8ff; }
   a { color: var(--accent); }
   .empty { color: var(--muted); padding: 40px; text-align: center; }
 </style>
@@ -101,7 +102,8 @@ export const dashboardHtml: string = `<!doctype html>
       }).join("");
       var feed = (rec.activity || []).slice().reverse().map(function (a) {
         var ts = new Date(a.ts).toLocaleTimeString();
-        return '<div><span class="t">' + esc(ts) + "</span> " + esc(a.text) + "</div>";
+        var step = a.step ? '<span class="s">[' + esc(a.step) + "]</span> " : "";
+        return '<div><span class="t">' + esc(ts) + "</span> " + step + esc(a.text) + "</div>";
       }).join("") || '<div>(no activity yet)</div>';
       var pr = rec.prUrl ? ' · <a href="' + esc(rec.prUrl) + '" target="_blank">PR</a>'
         : (rec.mrIid ? " · MR !" + esc(rec.mrIid) : "");
